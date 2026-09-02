@@ -135,33 +135,50 @@ burning API calls or fighting audio issues first.
 Once the local + ngrok flow works end-to-end, swap the tunnel for real hosting
 so the demo doesn't depend on your laptop staying online.
 
-### Backend → Render (or Railway / Fly.io — anything that builds a Dockerfile)
+### Backend → Back4app Containers
 
-A `backend/Dockerfile` is included.
+**Not Render** — Render's free tier does not support WebSockets (confirmed
+against their current docs), and this backend's live transcript/topic/
+latency UI depends on one (`/ws/{session_id}`). Back4app Containers'
+free tier does support WebSockets, needs no credit card, and builds
+`backend/Dockerfile` directly.
 
-1. Push this repo to GitHub.
-2. On [Render](https://render.com): New → Web Service → connect the repo →
-   root directory `backend` → Render auto-detects the `Dockerfile`.
-3. Add every var from `backend/.env.example` in Render's Environment tab.
-   Leave `PUBLIC_BACKEND_URL` blank for now — you'll fill it in after step 4.
-4. Deploy. Copy the resulting `https://your-service.onrender.com` URL.
-5. Set `PUBLIC_BACKEND_URL` to that URL (no trailing slash) and redeploy —
-   this is what Agora's ConvoAI engine calls for `/llm/*`, so it must be the
-   live URL, not localhost/ngrok, before you start a real session.
-6. Set `CORS_ORIGINS` to your deployed frontend's URL (from the Vercel step
+1. Push this repo to GitHub (done).
+2. Sign up at [back4app.com](https://www.back4app.com) (GitHub sign-in is
+   the fastest path) and open the **Containers** product.
+3. Choose to create a new Container app, then **Connect with your GitHub**
+   — this installs the Back4app Containers GitHub App; authorize it for
+   this repo (or your whole account).
+4. Select the `ai-interview-panel` repo from the list.
+5. On "Prepare your Deployment": set **App Name**, **Branch** = `main`,
+   **Root** = `backend` (this is where the Dockerfile is), leave
+   **Auto Deployment** on if you want pushes to redeploy automatically,
+   and add every variable from `backend/.env.example` under
+   **Environment Variables** (copy the actual values from your local
+   `backend/.env` — never paste secrets into chat/docs). Leave
+   `PUBLIC_BACKEND_URL` and `CORS_ORIGINS` blank for now.
+6. Click **Create App**. You land on the App Overview with live deployment
+   logs — wait for status `ready`.
+7. Your app's URL is under the sidebar **Actions** dropdown → **URL link**,
+   in the form `https://<app-name>-<your-username>.b4a.run`.
+8. Go back to Environment Variables, set `PUBLIC_BACKEND_URL` to that URL
+   (no trailing slash), save/redeploy — this is what Agora's ConvoAI engine
+   calls for `/llm/*`, so it must be the live URL, not localhost/ngrok.
+9. Set `CORS_ORIGINS` to your deployed frontend's URL (from the Vercel step
    below) once you have it, and redeploy again.
 
-Note: Render/Railway free tiers can cold-sleep after inactivity, which adds
-latency to the first request. Ping `/health` before a live demo to warm it up.
+Free tier is 0.25 CPU / 256MB RAM / 600 active hours per month — plenty for
+this app (it's I/O-bound, not compute-heavy) — but it can still sleep after
+extended inactivity; ping `/health` before a live demo to warm it up.
 
 ### Frontend → Vercel
 
 1. On [Vercel](https://vercel.com): New Project → import the same repo → set
-   root directory to `frontend` (Next.js auto-detected).
-2. Add environment variable `NEXT_PUBLIC_BACKEND_URL` = your Render backend
-   URL from above.
+   **Root Directory** to `frontend` (Next.js auto-detected).
+2. Add environment variable `NEXT_PUBLIC_BACKEND_URL` = your Back4app
+   backend URL from above.
 3. Deploy. Copy the resulting `https://your-app.vercel.app` URL and use it
-   for `CORS_ORIGINS` on the backend (step 6 above).
+   for `CORS_ORIGINS` on the backend (step 9 above).
 
 ### After both are live
 
