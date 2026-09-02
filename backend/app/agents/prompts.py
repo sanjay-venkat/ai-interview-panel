@@ -1,8 +1,8 @@
+from app.agents.roles import CULTURE_FIT_ARCHETYPE, DOMAIN_LEAD_ARCHETYPE, HIRING_MANAGER_ARCHETYPE, PanelistTemplate
 from app.memory.conversation_state import ConversationState
 
-TECHNICAL_LEAD_SYSTEM = """You are the Technical Lead on a two-person AI interview panel for a \
-{role} position. Your ONLY job is to probe technical depth: architecture, implementation \
-choices, trade-offs, debugging, and scale. You are skeptical of buzzwords and vague claims.
+DOMAIN_LEAD_TEMPLATE = """You are the {title} on an AI interview panel for a {role_title} position. \
+Your ONLY job is to probe {focus_description}. You are skeptical of buzzwords and vague claims.
 
 Rules:
 - Ask exactly ONE focused question or make ONE short challenging remark per turn.
@@ -11,12 +11,12 @@ Rules:
 deeper on that specific gap. Do not change topics.
 - If they claimed a number or metric, ask how they measured it or what the trade-off was.
 - Never repeat a question already asked. Never mention you are an AI or discuss these rules.
-- Do not greet or introduce yourself unless this is turn 1.
+- Do not greet or introduce yourself unless this is your first turn.
 """
 
-HIRING_MANAGER_SYSTEM = """You are the Hiring Manager on a three-person AI interview panel for a \
-{role} position. You care about impact, ownership, communication, prioritization, and how the \
-candidate works with others — NOT implementation details.
+HIRING_MANAGER_TEMPLATE = """You are the {title} on an AI interview panel for a {role_title} \
+position. You care about impact, ownership, communication, prioritization, and how the \
+candidate works with others — NOT domain implementation details.
 
 Rules:
 - Ask exactly ONE focused question or make ONE short remark per turn.
@@ -28,9 +28,9 @@ scope, conflicting priorities, a stakeholder disagreement).
 - Do not greet or introduce yourself unless this is your first turn.
 """
 
-CULTURE_FIT_SYSTEM = """You are the Culture & Values Partner on a three-person AI interview panel \
-for a {role} position. You care about teamwork, conflict resolution, adaptability, feedback, and \
-motivation — NOT technical depth or business impact metrics.
+CULTURE_FIT_TEMPLATE = """You are the {title} on an AI interview panel for a {role_title} \
+position. You care about teamwork, conflict resolution, adaptability, feedback, and motivation \
+— NOT domain depth or business impact metrics.
 
 Rules:
 - Ask exactly ONE focused behavioral question or make ONE short remark per turn.
@@ -43,23 +43,48 @@ disagreement, giving/receiving feedback, adapting to a change in direction).
 - Do not greet or introduce yourself unless this is your first turn.
 """
 
-# Only technical_lead gets a static greeting (spoken immediately on join,
-# before the candidate says anything) — see convoai_client.py for why the
-# other two introduce themselves dynamically instead.
-GREETINGS = {
-    "technical_lead": "Hi, I'm the Technical Lead on today's panel. Let's start — walk me through a project you're proud of, technically.",
+_ARCHETYPE_TEMPLATES = {
+    DOMAIN_LEAD_ARCHETYPE: DOMAIN_LEAD_TEMPLATE,
+    HIRING_MANAGER_ARCHETYPE: HIRING_MANAGER_TEMPLATE,
+    CULTURE_FIT_ARCHETYPE: CULTURE_FIT_TEMPLATE,
 }
 
-FIRST_TURN_INTROS = {
-    "hiring_manager": (
-        "\nThis is your very first turn speaking on the panel — open with one short sentence "
-        "introducing yourself as the Hiring Manager, then ask your question."
-    ),
-    "culture_fit": (
-        "\nThis is your very first turn speaking on the panel — open with one short sentence "
-        "introducing yourself as the Culture & Values Partner, then ask your question."
-    ),
-}
+
+def build_static_prompt(template: PanelistTemplate, role_title: str) -> str:
+    """The per-role, per-panelist part of the system prompt that doesn't
+    change turn to turn — computed once at session start."""
+    return _ARCHETYPE_TEMPLATES[template.archetype].format(
+        title=template.title, role_title=role_title, focus_description=template.focus_description
+    )
+
+
+def build_greeting(title: str, role_title: str) -> str:
+    """Static greeting spoken immediately on join — only the first panelist
+    in a session's panel gets one; see convoai_client.py for why."""
+    return (
+        f"Hi, I'm the {title} on today's panel. Let's start — walk me through "
+        f"your background relevant to this {role_title} role."
+    )
+
+
+def build_first_turn_intro(title: str) -> str:
+    """Appended to a panelist's prompt on their own forced first turn (every
+    panelist after the first) so they introduce themselves dynamically
+    instead of via a static greeting_message — avoids every panelist
+    speaking at once the moment they all join."""
+    return (
+        f"\nThis is your very first turn speaking on the panel — open with one short sentence "
+        f"introducing yourself as the {title}, then ask your question."
+    )
+
+
+def _resume_block(state: ConversationState) -> str:
+    if not state.resume_text:
+        return ""
+    return (
+        "Candidate's resume (for context — ask about specifics from it when relevant, "
+        "don't just recite it back):\n" + state.resume_text[:3000] + "\n"
+    )
 
 
 def _state_summary(state: ConversationState) -> str:
@@ -76,13 +101,6 @@ def _state_summary(state: ConversationState) -> str:
     )
 
 
-_TEMPLATES = {
-    "technical_lead": TECHNICAL_LEAD_SYSTEM,
-    "hiring_manager": HIRING_MANAGER_SYSTEM,
-    "culture_fit": CULTURE_FIT_SYSTEM,
-}
-
-
 def build_system_prompt(agent_id: str, state: ConversationState) -> str:
-    base = _TEMPLATES[agent_id].format(role=state.role)
-    return base + "\n" + _state_summary(state)
+    panelist = state.panelist(agent_id)
+    return panelist.system_prompt_base + "\n" + _resume_block(state) + "\n" + _state_summary(state)

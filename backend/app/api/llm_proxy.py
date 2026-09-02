@@ -6,10 +6,10 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.agents.prompts import FIRST_TURN_INTROS, build_system_prompt
+from app.agents.prompts import build_first_turn_intro, build_system_prompt
 from app.llm.groq_client import stream_chat
 from app.memory.conversation_state import TranscriptLine, broadcast, session_store
-from app.orchestration.floor_controller import AGENTS, resolve_decision
+from app.orchestration.floor_controller import resolve_decision
 
 router = APIRouter()
 
@@ -49,8 +49,10 @@ async def _speak_stream(agent_id: str, session_id: str, candidate_text: str, com
     state = session_store.get(session_id)
     already_spoke = any(t.speaker == agent_id for t in state.transcript)
     system_prompt = build_system_prompt(agent_id, state)
-    if agent_id in FIRST_TURN_INTROS and not already_spoke:
-        system_prompt += FIRST_TURN_INTROS[agent_id]
+    # Every panelist except the first (which has a static greeting_message)
+    # introduces itself dynamically on its own forced first turn.
+    if state.panel and agent_id != state.panel[0].id and not already_spoke:
+        system_prompt += build_first_turn_intro(state.panelist(agent_id).title)
 
     start = time.time()
     first_token_at = None
@@ -77,12 +79,12 @@ async def _speak_stream(agent_id: str, session_id: str, candidate_text: str, com
 
 @router.post("/llm/{agent_id}/{session_id}/chat/completions")
 async def llm_proxy(agent_id: str, session_id: str, request: Request):
-    if agent_id not in AGENTS:
-        raise HTTPException(400, "unknown agent_id")
-
     state = session_store.get(session_id)
     if state is None:
         raise HTTPException(404, "unknown session_id")
+
+    if state.panelist(agent_id) is None:
+        raise HTTPException(400, "unknown agent_id")
 
     body = await request.json()
     messages = body.get("messages", [])

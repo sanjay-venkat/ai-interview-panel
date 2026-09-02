@@ -62,22 +62,23 @@ async def stream_chat(system_prompt: str, user_message: str, max_tokens: int = 2
                     yield delta
 
 
-async def complete_json(system_prompt: str, user_message: str, max_tokens: int = 600) -> dict:
+async def complete_json(system_prompt: str, user_message: str, max_tokens: int = 600, mock_panel=None) -> dict:
     """Non-streaming call used only for the end-of-interview scorecard, where
     we need one clean JSON object rather than incremental audio."""
     if settings.effective_mock_mode:
+        panel = mock_panel or []
         return {
-            "technical_depth": 7.0,
+            "domain_depth": 7.0,
             "problem_solving": 6.5,
             "communication": 7.5,
             "ownership": 7.0,
-            "system_design": 6.8,
-            "culture_fit": 7.2,
+            "collaboration": 7.2,
             "overall": 7.0,
             "recommendation": "STRONG CONSIDERATION",
-            "technical_lead_comment": "Solid grasp of core concepts; deployment trade-offs were less clear.",
-            "hiring_manager_comment": "Communicated clearly and owned decisions well; impact could be quantified more.",
-            "culture_fit_comment": "Gave a specific, credible example of handling disagreement with a peer.",
+            "panelist_comments": {
+                p.title: "Solid, specific answers overall; a bit more depth on trade-offs would help."
+                for p in panel
+            },
         }
 
     payload = {

@@ -17,42 +17,42 @@ CARTESIA_MODEL_ID = "sonic-2"
 ELEVENLABS_MODEL = "eleven_flash_v2_5"  # ElevenLabs' lowest-latency model
 
 
-def _cartesia_voice_id(agent_id: str) -> str:
-    return {
-        "technical_lead": settings.CARTESIA_VOICE_ID_TECHNICAL,
-        "hiring_manager": settings.CARTESIA_VOICE_ID_MANAGER,
-        "culture_fit": settings.CARTESIA_VOICE_ID_CULTURE,
-    }[agent_id]
+def _cartesia_voice_id(slot: int) -> str:
+    return [
+        settings.CARTESIA_VOICE_ID_TECHNICAL,
+        settings.CARTESIA_VOICE_ID_MANAGER,
+        settings.CARTESIA_VOICE_ID_CULTURE,
+    ][slot]
 
 
-def _elevenlabs_voice_id(agent_id: str) -> str:
-    return {
-        "technical_lead": settings.ELEVENLABS_VOICE_ID_TECHNICAL,
-        "hiring_manager": settings.ELEVENLABS_VOICE_ID_MANAGER,
-        "culture_fit": settings.ELEVENLABS_VOICE_ID_CULTURE,
-    }[agent_id]
+def _elevenlabs_voice_id(slot: int) -> str:
+    return [
+        settings.ELEVENLABS_VOICE_ID_TECHNICAL,
+        settings.ELEVENLABS_VOICE_ID_MANAGER,
+        settings.ELEVENLABS_VOICE_ID_CULTURE,
+    ][slot]
 
 
-def _cartesia_config(agent_id: str) -> dict:
+def _cartesia_config(slot: int) -> dict:
     return {
         "vendor": "cartesia",
         "params": {
             "api_key": settings.CARTESIA_API_KEY,
             "model_id": CARTESIA_MODEL_ID,
-            "voice": {"mode": "id", "id": _cartesia_voice_id(agent_id)},
+            "voice": {"mode": "id", "id": _cartesia_voice_id(slot)},
             "output_format": {"container": "raw", "sample_rate": 16000},
             "language": "en",
         },
     }
 
 
-def _elevenlabs_config(agent_id: str) -> dict:
+def _elevenlabs_config(slot: int) -> dict:
     return {
         "vendor": "elevenlabs",
         "params": {
             "api_key": settings.ELEVENLABS_API_KEY,
             "model": ELEVENLABS_MODEL,
-            "voice_setting": {"voice_id": _elevenlabs_voice_id(agent_id)},
+            "voice_setting": {"voice_id": _elevenlabs_voice_id(slot)},
         },
     }
 
@@ -81,12 +81,17 @@ _REQUIRED_KEYS = {
 }
 
 
-def build_tts_config(agent_id: str) -> dict:
+def build_tts_config(slot: int) -> dict:
+    """`slot` is the panelist's position (0, 1, or 2) in this session's
+    panel — NOT tied to any particular role/persona. The *_TECHNICAL/
+    _MANAGER/_CULTURE env var names are historical (from the original fixed
+    3-agent panel) but are read purely positionally now that panels are
+    role-dependent and can hold different personas in any slot."""
     vendor = settings.TTS_VENDOR
     builder = _BUILDERS.get(vendor)
     if builder is None:
         raise ValueError(f"Unknown TTS_VENDOR '{vendor}'. Supported: {', '.join(_BUILDERS)}")
-    return builder(agent_id)
+    return builder(slot)
 
 
 def validate_tts_config():

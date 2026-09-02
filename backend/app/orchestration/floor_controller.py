@@ -1,43 +1,31 @@
 import asyncio
 import time
 
-from app.evaluation.extractor import Signals, extract_claims, extract_signals
-from app.memory.conversation_state import ConversationState, FloorDecision, TopicSignal, TranscriptLine
-
-AGENTS = ("technical_lead", "hiring_manager", "culture_fit")
+from app.evaluation.extractor import Signals, extract_claims, extract_signals, keyword_hits
+from app.memory.conversation_state import ConversationState, FloorDecision, PanelistRuntime, TopicSignal, TranscriptLine
 
 RECENT_SPEAK_PENALTY = 0.6
 RECENT_SPEAK_WINDOW_TURNS = 1
 EPOCH_WINDOW_SECONDS = 3.5
 
 
-def _relevance(agent_id: str, signals: Signals) -> float:
-    if agent_id == "technical_lead":
-        return min(1.0, 0.25 * signals.tech_hits)
-    if agent_id == "hiring_manager":
-        return min(1.0, 0.3 * signals.impact_hits)
-    return min(1.0, 0.3 * signals.behavioral_hits)
+def _relevance(panelist: PanelistRuntime, signals: Signals) -> float:
+    return min(1.0, 0.25 * keyword_hits(signals.lower_text, panelist.keywords))
 
 
-def _weakness_score(agent_id: str, signals: Signals) -> float:
-    if agent_id == "technical_lead":
-        score = 0.0
-        if signals.hedging:
-            score += 0.5
-        if signals.tech_hits > 0 and signals.word_count < 15:
-            score += 0.3
-        return min(1.0, score)
-    if agent_id == "hiring_manager":
-        score = 0.0
-        if signals.impact_hits == 0 and signals.tech_hits > 0:
-            score += 0.4
-        if not signals.has_number and signals.impact_hits > 0:
-            score += 0.3
-        return min(1.0, score)
+def _weakness_score(panelist: PanelistRuntime, signals: Signals) -> float:
+    """Generic proxy for 'this panelist should press harder': the candidate
+    touched this panelist's domain but hedged, or answered thinly. This
+    replaces per-agent-id special-cased logic (the old hiring_manager rule
+    checked a DIFFERENT panelist's keyword hits) so it works uniformly for
+    an arbitrary, role-defined panel — the trade-off is losing that one
+    cross-panelist nuance, which doesn't generalize to N dynamic panelists
+    anyway."""
+    hits = keyword_hits(signals.lower_text, panelist.keywords)
     score = 0.0
-    if signals.hedging and signals.behavioral_hits > 0:
-        score += 0.4
-    if signals.behavioral_hits > 0 and signals.word_count < 12:
+    if signals.hedging and hits > 0:
+        score += 0.5
+    if hits > 0 and signals.word_count < 15:
         score += 0.3
     return min(1.0, score)
 
@@ -51,11 +39,11 @@ def _recent_penalty(state: ConversationState, agent_id: str) -> float:
     return 0.0
 
 
-def score_agent(state: ConversationState, agent_id: str, signals: Signals) -> dict:
-    relevance = _relevance(agent_id, signals)
-    weakness = _weakness_score(agent_id, signals)
+def score_agent(state: ConversationState, panelist: PanelistRuntime, signals: Signals) -> dict:
+    relevance = _relevance(panelist, signals)
+    weakness = _weakness_score(panelist, signals)
     urgency = 0.5 * relevance + 0.5 * weakness
-    penalty = _recent_penalty(state, agent_id)
+    penalty = _recent_penalty(state, panelist.id)
     final = relevance + weakness + urgency - penalty
     return {
         "relevance": round(relevance, 3),
@@ -75,23 +63,28 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
     state.transcript.append(TranscriptLine(speaker="candidate", text=candidate_text))
     signals = extract_signals(candidate_text)
 
-    for topic in signals.topics:
-        t = state.topics.setdefault(topic, TopicSignal())
-        t.mentions += 1
-        t.confidence = min(1.0, t.confidence + 0.15)
+    all_keywords: set[str] = set()
+    for p in state.panel:
+        all_keywords.update(p.keywords)
+    for topic in all_keywords:
+        if topic in signals.lower_text:
+            t = state.topics.setdefault(topic, TopicSignal())
+            t.mentions += 1
+            t.confidence = min(1.0, t.confidence + 0.15)
 
     for claim in extract_claims(candidate_text):
         if claim not in state.claims:
             state.claims.append(claim)
 
-    scores = {agent_id: score_agent(state, agent_id, signals) for agent_id in AGENTS}
+    agent_order = state.panel_ids()
+    scores = {p.id: score_agent(state, p, signals) for p in state.panel}
 
-    # First len(AGENTS) turns are forced, one per panelist in order, so every
+    # First len(panel) turns are forced, one per panelist in order, so every
     # interviewer is guaranteed to speak early in the demo rather than leaving
     # it to chance if the candidate's opening answer happens to score
-    # entirely toward one panelist (e.g. all-technical).
-    if state.turn_count < len(AGENTS):
-        winner = AGENTS[state.turn_count]
+    # entirely toward one panelist.
+    if state.turn_count < len(agent_order):
+        winner = agent_order[state.turn_count]
     else:
         best = max(scores.items(), key=lambda kv: kv[1]["final"])
         # Require a minimum signal so agents don't jump in on pure small talk.
@@ -99,7 +92,7 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
         if winner is None:
             # Round-robin fallback so the interview keeps moving: whichever
             # panelist has gone longest without a turn speaks next.
-            winner = min(AGENTS, key=lambda a: state.agent_last_spoke_turn.get(a, -1))
+            winner = min(agent_order, key=lambda a: state.agent_last_spoke_turn.get(a, -1))
 
     weakness = scores[winner]["weakness"] if winner else 0
     if weakness > 0.4:
@@ -113,12 +106,12 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
 
 
 async def resolve_decision(state: ConversationState, agent_id: str, candidate_text: str) -> FloorDecision:
-    """Both interviewer agents call this once they see a new candidate
-    message in their own conversation history. Because each agent runs an
+    """Every interviewer agent calls this once it sees a new candidate
+    message in its own conversation history. Because each agent runs an
     independent ASR pipeline, their transcripts of the same utterance won't
     match exactly — so instead of deduping by text, whichever call arrives
-    first opens a short "epoch" and computes the decision; the other agent,
-    arriving within EPOCH_WINDOW_SECONDS, reuses it instead of computing its
+    first opens a short "epoch" and computes the decision; the others,
+    arriving within EPOCH_WINDOW_SECONDS, reuse it instead of computing their
     own (possibly disagreeing) decision.
 
     Note: `decide_floor` is fully synchronous and asyncio.Lock's fast path

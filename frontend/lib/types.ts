@@ -10,9 +10,16 @@ export interface TranscriptLine {
   ts: number;
 }
 
+export interface PanelMember {
+  id: string;
+  title: string;
+}
+
 export interface Snapshot {
   session_id: string;
   candidate_name: string;
+  role_title: string;
+  panel: PanelMember[];
   phase: "idle" | "active" | "deliberating" | "complete";
   current_speaker: string;
   turn_count: number;

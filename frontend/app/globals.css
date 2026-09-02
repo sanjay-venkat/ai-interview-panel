@@ -65,7 +65,9 @@ button {
   margin-bottom: 6px;
 }
 
-.field input {
+.field input,
+.field select,
+.field textarea {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
@@ -73,6 +75,29 @@ button {
   background: #0e121c;
   color: var(--text);
   font-size: 14px;
+  font-family: inherit;
+}
+
+.field input[type="file"] {
+  padding: 8px;
+  font-size: 13px;
+}
+
+.field textarea {
+  margin-top: 8px;
+  resize: vertical;
+}
+
+.field .hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.panel-preview {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
 }
 
 .btn-primary {
@@ -134,15 +159,9 @@ button {
 
 .agent-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
   margin-bottom: 20px;
-}
-
-@media (max-width: 720px) {
-  .agent-row {
-    grid-template-columns: 1fr;
-  }
 }
 
 .agent-card {
@@ -226,16 +245,8 @@ button {
   color: var(--accent-2);
 }
 
-.transcript-line.technical_lead .speaker {
+.transcript-line.panelist .speaker {
   color: var(--accent);
-}
-
-.transcript-line.hiring_manager .speaker {
-  color: var(--good);
-}
-
-.transcript-line.culture_fit .speaker {
-  color: var(--warn);
 }
 
 .score-bar-row {
