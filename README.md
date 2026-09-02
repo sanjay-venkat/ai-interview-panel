@@ -54,7 +54,7 @@ working demo.
 | # | What | Where | Notes |
 |---|------|-------|-------|
 | 1 | Agora **App ID** + **App Certificate** | [Agora Console](https://console.agora.io) → Project Management → create project (enable "App Certificate" / secured mode) | Used for RTC tokens |
-| 2 | Agora **Customer ID** + **Customer Secret** | Agora Console → Developer Toolkit → RESTful API → Add a secret | Different credential pair from #1 — this is Basic-auth for the Conversational AI Engine REST calls, not the RTC token |
+| 2 | Agora **Customer ID** + **Customer Secret** | Agora Console → project Home → "Manage credentials" (the "Key"/"Secret" pair shown there — older docs call this "Developer Toolkit → RESTful API", the console has since moved it) | Different credential pair from #1 — this is Basic-auth for the Conversational AI Engine REST calls, not the RTC token |
 | 3 | **Deepgram** API key | [console.deepgram.com](https://console.deepgram.com) | Free tier is fine for STT |
 | 4 | **Cartesia** API key + 3 voice IDs | [play.cartesia.ai/keys](https://play.cartesia.ai/keys) | **TTS, default vendor.** Free tier's concurrency limit is 2 *simultaneous* generations (verified against Cartesia's docs) — with 3 agents this is fine in practice since the floor controller only ever lets one agent generate speech at a time, but it's worth confirming live (see Day-1 checklist). Pick three different voices at [play.cartesia.ai/voices](https://play.cartesia.ai/voices) so the three interviewers sound distinct. |
 | 5 | **Groq** API key | [console.groq.com/keys](https://console.groq.com/keys) | Free tier. `GROQ_MODEL` defaults to `qwen/qwen3.8-27b` — Groq's free-model lineup rotates, so if you get a 404 "model not found", check `GET https://api.groq.com/openai/v1/models` with your key and update `GROQ_MODEL`. |
@@ -62,7 +62,8 @@ working demo.
 
 Enable **Conversational AI Engine** on your Agora project if it's not on by
 default (Console → your project → check for a ConvoAI / Agent section; new
-projects usually have it available already).
+projects usually have it available already — confirmed enabled on this
+project's console, showing 300 free ConvoAI minutes).
 
 ### Why Cartesia instead of ElevenLabs by default
 
@@ -209,7 +210,11 @@ this order, cheapest/fastest first:
    `join_agent()` silently returns a fake `mock-agent-*` ID instead of
    actually calling Agora — the rest of the app (Groq responses, scorecard,
    frontend) works fine, but no real voice pipeline ever starts. This is the
-   #1 way "it worked in my test" turns into "no audio in the demo."
+   #1 way "it worked in my test" turns into "no audio in the demo." (Auth
+   itself was verified live on 2026-09-02 with a deliberately incomplete
+   probe request to the real `join` endpoint — got `400` payload-validation,
+   not `401`, confirming the credentials authenticate. A real end-to-end
+   audio test with `ngrok` running still hasn't been done.)
 
 ## Architecture reference
 
