@@ -29,23 +29,31 @@ class Settings:
     DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 
     # TTS vendor is pluggable — see app/agora/tts_vendors.py. Cartesia is the
-    # default: its free tier supports 2 concurrent real-time streams (exactly
-    # our two-agent case) with sub-90ms latency. ElevenLabs' free tier is
-    # routinely blocked for real-time streaming by Agora's abuse detection,
-    # so only use it once you're on a paid plan.
+    # default: its free tier supports 2 concurrent generations, which covers
+    # our 3-agent panel fine since only one agent ever speaks per turn, plus
+    # sub-90ms latency. ElevenLabs' free tier is routinely blocked for
+    # real-time streaming by Agora's abuse detection, so only use it once
+    # you're on a paid plan.
     TTS_VENDOR = os.getenv("TTS_VENDOR", "cartesia")  # "cartesia" | "elevenlabs"
 
     CARTESIA_API_KEY = os.getenv("CARTESIA_API_KEY", "")
     CARTESIA_VOICE_ID_TECHNICAL = os.getenv("CARTESIA_VOICE_ID_TECHNICAL", "")
     CARTESIA_VOICE_ID_MANAGER = os.getenv("CARTESIA_VOICE_ID_MANAGER", "")
+    CARTESIA_VOICE_ID_CULTURE = os.getenv("CARTESIA_VOICE_ID_CULTURE", "")
 
     ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
     ELEVENLABS_VOICE_ID_TECHNICAL = os.getenv("ELEVENLABS_VOICE_ID_TECHNICAL", "")
     ELEVENLABS_VOICE_ID_MANAGER = os.getenv("ELEVENLABS_VOICE_ID_MANAGER", "")
+    ELEVENLABS_VOICE_ID_CULTURE = os.getenv("ELEVENLABS_VOICE_ID_CULTURE", "")
 
     # LLM (Groq free tier, lightweight model)
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    # llama-3.1-8b-instant was decommissioned by Groq; verified live against
+    # the account's own key on 2026-09-02 that qwen/qwen3.8-27b is available,
+    # fast, and (unlike the gpt-oss-* models on this account) doesn't burn
+    # part of max_tokens on hidden reasoning before any spoken content comes
+    # back. Re-check `GET /openai/v1/models` if this ever 404s again.
+    GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
     GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 
     # Fallback mode: no external calls, deterministic canned responses.

@@ -4,7 +4,7 @@ import time
 from app.evaluation.extractor import Signals, extract_claims, extract_signals
 from app.memory.conversation_state import ConversationState, FloorDecision, TopicSignal, TranscriptLine
 
-AGENTS = ("technical_lead", "hiring_manager")
+AGENTS = ("technical_lead", "hiring_manager", "culture_fit")
 
 RECENT_SPEAK_PENALTY = 0.6
 RECENT_SPEAK_WINDOW_TURNS = 1
@@ -14,7 +14,9 @@ EPOCH_WINDOW_SECONDS = 3.5
 def _relevance(agent_id: str, signals: Signals) -> float:
     if agent_id == "technical_lead":
         return min(1.0, 0.25 * signals.tech_hits)
-    return min(1.0, 0.3 * signals.impact_hits)
+    if agent_id == "hiring_manager":
+        return min(1.0, 0.3 * signals.impact_hits)
+    return min(1.0, 0.3 * signals.behavioral_hits)
 
 
 def _weakness_score(agent_id: str, signals: Signals) -> float:
@@ -25,10 +27,17 @@ def _weakness_score(agent_id: str, signals: Signals) -> float:
         if signals.tech_hits > 0 and signals.word_count < 15:
             score += 0.3
         return min(1.0, score)
+    if agent_id == "hiring_manager":
+        score = 0.0
+        if signals.impact_hits == 0 and signals.tech_hits > 0:
+            score += 0.4
+        if not signals.has_number and signals.impact_hits > 0:
+            score += 0.3
+        return min(1.0, score)
     score = 0.0
-    if signals.impact_hits == 0 and signals.tech_hits > 0:
+    if signals.hedging and signals.behavioral_hits > 0:
         score += 0.4
-    if not signals.has_number and signals.impact_hits > 0:
+    if signals.behavioral_hits > 0 and signals.word_count < 12:
         score += 0.3
     return min(1.0, score)
 
@@ -77,21 +86,20 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
 
     scores = {agent_id: score_agent(state, agent_id, signals) for agent_id in AGENTS}
 
-    # First two turns are forced so both interviewers are guaranteed to speak
-    # early in the demo, rather than leaving hiring_manager's participation to
-    # chance if the candidate's opening answer happens to score all-technical.
-    if state.turn_count == 0:
-        winner = "technical_lead"
-    elif state.turn_count == 1:
-        winner = "hiring_manager"
+    # First len(AGENTS) turns are forced, one per panelist in order, so every
+    # interviewer is guaranteed to speak early in the demo rather than leaving
+    # it to chance if the candidate's opening answer happens to score
+    # entirely toward one panelist (e.g. all-technical).
+    if state.turn_count < len(AGENTS):
+        winner = AGENTS[state.turn_count]
     else:
         best = max(scores.items(), key=lambda kv: kv[1]["final"])
         # Require a minimum signal so agents don't jump in on pure small talk.
         winner = best[0] if best[1]["final"] > 0.15 else None
         if winner is None:
-            # Alternate as a graceful fallback so the interview keeps moving.
-            last = max(state.agent_last_spoke_turn.items(), key=lambda kv: kv[1], default=(None, -1))[0]
-            winner = "hiring_manager" if last == "technical_lead" else "technical_lead"
+            # Round-robin fallback so the interview keeps moving: whichever
+            # panelist has gone longest without a turn speaks next.
+            winner = min(AGENTS, key=lambda a: state.agent_last_spoke_turn.get(a, -1))
 
     weakness = scores[winner]["weakness"] if winner else 0
     if weakness > 0.4:

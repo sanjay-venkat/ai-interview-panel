@@ -1,12 +1,13 @@
 # AI Interview Panel
 
-Two AI interviewers (Technical Lead + Hiring Manager) share one live Agora RTC
-channel with a candidate. Agora's **Conversational AI Engine** runs the voice
-pipeline (STT via Deepgram, TTS via a pluggable vendor — Cartesia by default,
-VAD, barge-in) for each agent. Our backend is the "brain": a deterministic
-floor controller decides who speaks next, a shared conversation-state object
-gives both agents memory of what's been said, and Groq (free tier,
-`llama-3.1-8b-instant`) generates each agent's actual question/response.
+Three AI interviewers (Technical Lead + Hiring Manager + Culture & Values
+Partner) share one live Agora RTC channel with a candidate. Agora's
+**Conversational AI Engine** runs the voice pipeline (STT via Deepgram, TTS
+via a pluggable vendor — Cartesia by default, VAD, barge-in) for each agent.
+Our backend is the "brain": a deterministic floor controller decides who
+speaks next, a shared conversation-state object gives all three agents
+memory of what's been said, and Groq (free tier, `qwen/qwen3.8-27b`)
+generates each agent's actual question/response.
 
 Full architecture rationale is in the conversation that produced this repo;
 this file is the practical setup + status doc.
@@ -14,11 +15,12 @@ this file is the practical setup + status doc.
 ## What's built
 
 - **Backend** (`backend/`, FastAPI): session lifecycle, Agora RTC token
-  generation, Agora ConvoAI agent join/leave, the OpenAI-compatible `/llm/*`
-  proxy endpoint both agents call, the floor controller, shared conversation
-  state, WebSocket state broadcast, end-of-interview deliberation/scorecard.
+  generation, Agora ConvoAI agent join/leave for all three agents, the
+  OpenAI-compatible `/llm/*` proxy endpoint each agent calls, the floor
+  controller, shared conversation state, WebSocket state broadcast,
+  end-of-interview deliberation/scorecard.
 - **Frontend** (`frontend/`, Next.js + TypeScript): setup screen, Agora Web
-  SDK join (mic publish + subscribe to both agent audio tracks), live
+  SDK join (mic publish + subscribe to all three agents' audio tracks), live
   transcript, agent speaking/listening indicators, topic confidence bars,
   latency HUD, final scorecard screen.
 - **Mock mode**: works fully offline with zero API keys (`MOCK_MODE=true` or
@@ -26,11 +28,17 @@ this file is the practical setup + status doc.
   floor-controller/state/WebSocket pipeline, so you can build and demo the UI
   and turn-taking logic before any accounts are wired up.
 
-Verified so far (see "Day-1 validation" below for what's *not* yet verified
-against live Agora infra): floor-controller race handling under true
-concurrency, full session lifecycle (start → turns → end → scorecard) via
-HTTP, backend installs cleanly, frontend type-checks and production-builds
-cleanly.
+Verified live end-to-end against real Groq + Cartesia credentials on
+2026-09-02: 3-agent forced opening order (technical_lead → hiring_manager →
+culture_fit), each panelist's dynamic self-introduction on its first turn
+(no duplicate/overlapping greetings), streaming responses, and the
+end-of-interview scorecard including the new `culture_fit` score and
+`culture_fit_comment` fields. Frontend type-checks and production-builds
+cleanly; backend installs and imports cleanly. See "Day-1 validation" below
+for what still needs checking against *live Agora audio infra specifically*
+(this backend-only smoke test bypassed Agora's RTC/ConvoAI layer via
+mock-agent join IDs, since `AGORA_CUSTOMER_ID`/`AGORA_CUSTOMER_SECRET`
+aren't set yet).
 
 ## What's NOT built (by design — see the cut-scope list from the plan)
 
@@ -48,8 +56,8 @@ working demo.
 | 1 | Agora **App ID** + **App Certificate** | [Agora Console](https://console.agora.io) → Project Management → create project (enable "App Certificate" / secured mode) | Used for RTC tokens |
 | 2 | Agora **Customer ID** + **Customer Secret** | Agora Console → Developer Toolkit → RESTful API → Add a secret | Different credential pair from #1 — this is Basic-auth for the Conversational AI Engine REST calls, not the RTC token |
 | 3 | **Deepgram** API key | [console.deepgram.com](https://console.deepgram.com) | Free tier is fine for STT |
-| 4 | **Cartesia** API key + 2 voice IDs | [play.cartesia.ai/keys](https://play.cartesia.ai/keys) | **TTS, default vendor.** Free tier gives 2 concurrent real-time streams — exactly our two-agent case — plus sub-90ms latency (their Sonic model). Pick two different voices at [play.cartesia.ai/voices](https://play.cartesia.ai/voices) so the two interviewers sound distinct. |
-| 5 | **Groq** API key | [console.groq.com/keys](https://console.groq.com/keys) | Free tier, used for `llama-3.1-8b-instant` |
+| 4 | **Cartesia** API key + 3 voice IDs | [play.cartesia.ai/keys](https://play.cartesia.ai/keys) | **TTS, default vendor.** Free tier's concurrency limit is 2 *simultaneous* generations (verified against Cartesia's docs) — with 3 agents this is fine in practice since the floor controller only ever lets one agent generate speech at a time, but it's worth confirming live (see Day-1 checklist). Pick three different voices at [play.cartesia.ai/voices](https://play.cartesia.ai/voices) so the three interviewers sound distinct. |
+| 5 | **Groq** API key | [console.groq.com/keys](https://console.groq.com/keys) | Free tier. `GROQ_MODEL` defaults to `qwen/qwen3.8-27b` — Groq's free-model lineup rotates, so if you get a 404 "model not found", check `GET https://api.groq.com/openai/v1/models` with your key and update `GROQ_MODEL`. |
 | 6 | A public tunnel (**ngrok** or **cloudflared**) | `ngrok http 8000` | Agora's cloud calls *your* `/llm/*` endpoint — it cannot reach `localhost`. This is easy to forget and will silently break everything if skipped. |
 
 Enable **Conversational AI Engine** on your Agora project if it's not on by
@@ -61,7 +69,8 @@ projects usually have it available already).
 The TTS vendor is fully pluggable (`backend/app/agora/tts_vendors.py`,
 switched with one env var: `TTS_VENDOR=cartesia|elevenlabs`) — you're not
 locked into either. Cartesia is the default because its free tier actually
-supports real-time streaming for our exact shape (2 concurrent agents);
+supports real-time streaming for our shape (only one agent ever generates
+speech at a time — see the Cartesia row above);
 **ElevenLabs' free tier is routinely blocked by Agora's abuse-detection for
 real-time streaming and will silently kill audio mid-demo.** If you already
 have a paid ElevenLabs plan and prefer its voice quality/variety, set
@@ -173,16 +182,21 @@ this order, cheapest/fastest first:
    TTS vendor/Agora genuinely stays silent rather than erroring or emitting a
    blip. If it doesn't, the fallback is to make the "pass" response a single
    short breath/filler sound instead of true empty content.
-2. **Two simultaneous ConvoAI agents in one channel behave as expected** —
-   that both can publish audio into the same channel without Agora rejecting
-   the second `join`, and that each agent's ASR only transcribes the
-   candidate's audio (not the other agent's TTS output, which would create a
+2. **Three simultaneous ConvoAI agents in one channel behave as expected** —
+   that all three can publish audio into the same channel without Agora
+   rejecting the 2nd/3rd `join`, that Cartesia's free-tier concurrency limit
+   (2 simultaneous generations) is never actually hit since only one agent
+   speaks per turn, and that each agent's ASR only transcribes the
+   candidate's audio (not another agent's TTS output, which would create a
    feedback loop). `remote_rtc_uids` in the join payload is what scopes each
-   agent to listen only to the candidate — verify this scoping actually holds.
-3. **Two greeting messages don't overlap.** Only `technical_lead` is
-   configured with a `greeting_message` in `session_manager.py`;
-   `hiring_manager`'s first line is generated dynamically on its forced first
-   turn instead. Confirm this avoids audio collision on join.
+   agent to listen only to the candidate — verify this scoping actually holds
+   with three agents, not just two.
+3. **No greeting messages overlap.** Only `technical_lead` has a static
+   `greeting_message` (spoken immediately on join); `hiring_manager` and
+   `culture_fit` introduce themselves dynamically on their forced first turn
+   instead (turn 2 and turn 3) — see `FIRST_TURN_INTROS` in
+   `backend/app/agents/prompts.py`. Confirm this avoids audio collision on
+   join with three agents now in the channel.
 4. **`PUBLIC_BACKEND_URL` reachability.** Agora's servers must be able to
    reach your ngrok URL — test with `curl https://your-ngrok-url/health` from
    *outside* your network (e.g. your phone on cellular) before relying on it.
@@ -191,23 +205,29 @@ this order, cheapest/fastest first:
    non-commercial-use only — read their terms if that matters for how you're
    presenting the hackathon project. If you switch to ElevenLabs, confirm
    your plan tier isn't rate-limited/blocked before the demo.
+6. **`AGORA_CUSTOMER_ID`/`AGORA_CUSTOMER_SECRET` are set.** Without these,
+   `join_agent()` silently returns a fake `mock-agent-*` ID instead of
+   actually calling Agora — the rest of the app (Groq responses, scorecard,
+   frontend) works fine, but no real voice pipeline ever starts. This is the
+   #1 way "it worked in my test" turns into "no audio in the demo."
 
 ## Architecture reference
 
 ```
-Candidate mic → Agora RTC channel ← 2 Agora ConvoAI agents (Technical Lead, Hiring Manager)
-                                          │            │
-                                    Deepgram ASR   Deepgram ASR (independent per agent)
-                                          │            │
-                                          ▼            ▼
+Candidate mic → Agora RTC channel ← 3 Agora ConvoAI agents (Technical Lead, Hiring Manager, Culture & Values)
+                                          │            │            │
+                                    Deepgram ASR   Deepgram ASR   Deepgram ASR (independent per agent)
+                                          │            │            │
+                                          ▼            ▼            ▼
                               POST /llm/technical_lead/{sid}/chat/completions
                               POST /llm/hiring_manager/{sid}/chat/completions
-                                          │            │
-                                          ▼            ▼
+                              POST /llm/culture_fit/{sid}/chat/completions
+                                          │            │            │
+                                          ▼            ▼            ▼
                                  floor_controller.resolve_decision (shared, epoch-deduped)
                                           │
                               winner streams a real Groq response (SSE)
-                              loser streams an empty "pass" (SSE)
+                              losers stream an empty "pass" (SSE)
                                           │
                                           ▼
                     TTS vendor (Cartesia by default) (Agora-managed) → RTC → candidate

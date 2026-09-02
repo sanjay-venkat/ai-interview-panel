@@ -14,7 +14,7 @@ _active_agents: dict[str, dict[str, str]] = {}
 
 async def start_session(candidate_name: str, role: str) -> dict:
     # Fail fast on a misconfigured TTS vendor (missing key, wrong voice id
-    # env var) instead of joining two agents that will then fail silently
+    # env var) instead of joining agents that will then fail silently
     # partway through a live demo.
     validate_tts_config()
 
@@ -24,10 +24,10 @@ async def start_session(candidate_name: str, role: str) -> dict:
     state.phase = Phase.ACTIVE
 
     agent_ids: dict[str, str] = {}
-    for agent_id in ("technical_lead", "hiring_manager"):
+    for agent_id in AGENT_UIDS:
         system_prompt = build_system_prompt(agent_id, state)
         agora_agent_id = await join_agent(
-            agent_id, state.session_id, channel, system_prompt, GREETINGS[agent_id]
+            agent_id, state.session_id, channel, system_prompt, GREETINGS.get(agent_id)
         )
         agent_ids[agent_id] = agora_agent_id
     _active_agents[state.session_id] = agent_ids

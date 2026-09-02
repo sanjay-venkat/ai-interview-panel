@@ -1,20 +1,22 @@
 from app.llm.groq_client import complete_json
 from app.memory.conversation_state import ConversationState
 
-DELIBERATION_SYSTEM = """You are combining notes from two interviewers (a Technical Lead and a \
-Hiring Manager) into a final structured scorecard for a candidate. Be concise, specific, and \
-base every judgment only on the transcript and signals given. Respond with ONLY a JSON object \
-matching this schema:
+DELIBERATION_SYSTEM = """You are combining notes from three interviewers (a Technical Lead, a \
+Hiring Manager, and a Culture & Values Partner) into a final structured scorecard for a \
+candidate. Be concise, specific, and base every judgment only on the transcript and signals \
+given. Respond with ONLY a JSON object matching this schema:
 {
   "technical_depth": number (0-10),
   "problem_solving": number (0-10),
   "communication": number (0-10),
   "ownership": number (0-10),
   "system_design": number (0-10),
+  "culture_fit": number (0-10),
   "overall": number (0-10),
   "recommendation": "STRONG CONSIDERATION" | "CONSIDER" | "NOT RECOMMENDED",
   "technical_lead_comment": string (1-2 sentences, first person as the Technical Lead),
-  "hiring_manager_comment": string (1-2 sentences, first person as the Hiring Manager)
+  "hiring_manager_comment": string (1-2 sentences, first person as the Hiring Manager),
+  "culture_fit_comment": string (1-2 sentences, first person as the Culture & Values Partner)
 }
 """
 

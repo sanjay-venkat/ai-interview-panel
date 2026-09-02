@@ -72,10 +72,12 @@ async def complete_json(system_prompt: str, user_message: str, max_tokens: int =
             "communication": 7.5,
             "ownership": 7.0,
             "system_design": 6.8,
+            "culture_fit": 7.2,
             "overall": 7.0,
             "recommendation": "STRONG CONSIDERATION",
             "technical_lead_comment": "Solid grasp of core concepts; deployment trade-offs were less clear.",
             "hiring_manager_comment": "Communicated clearly and owned decisions well; impact could be quantified more.",
+            "culture_fit_comment": "Gave a specific, credible example of handling disagreement with a peer.",
         }
 
     payload = {

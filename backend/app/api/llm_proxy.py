@@ -6,10 +6,10 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.agents.prompts import build_system_prompt
+from app.agents.prompts import FIRST_TURN_INTROS, build_system_prompt
 from app.llm.groq_client import stream_chat
 from app.memory.conversation_state import TranscriptLine, broadcast, session_store
-from app.orchestration.floor_controller import resolve_decision
+from app.orchestration.floor_controller import AGENTS, resolve_decision
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ def _chunk(completion_id: str, content: str | None, finish_reason: str | None) -
 async def _pass_stream(completion_id: str) -> AsyncIterator[str]:
     """This agent did not win the floor this turn. We must still return a
     valid OpenAI-style stream (Agora's engine expects one), but with no real
-    content so ElevenLabs never synthesizes audio for it — effectively a
+    content so the TTS vendor never synthesizes audio for it — effectively a
     silent 'pass'. `interruptable: true` ensures it never blocks the winning
     agent's turn. VERIFY LIVE: confirm empty content truly yields no TTS
     audio rather than an error — this is the one behavior undocumented by
@@ -49,11 +49,8 @@ async def _speak_stream(agent_id: str, session_id: str, candidate_text: str, com
     state = session_store.get(session_id)
     already_spoke = any(t.speaker == agent_id for t in state.transcript)
     system_prompt = build_system_prompt(agent_id, state)
-    if agent_id == "hiring_manager" and not already_spoke:
-        system_prompt += (
-            "\nThis is your very first turn speaking on the panel — open with one short "
-            "sentence introducing yourself as the Hiring Manager, then ask your question."
-        )
+    if agent_id in FIRST_TURN_INTROS and not already_spoke:
+        system_prompt += FIRST_TURN_INTROS[agent_id]
 
     start = time.time()
     first_token_at = None
@@ -80,7 +77,7 @@ async def _speak_stream(agent_id: str, session_id: str, candidate_text: str, com
 
 @router.post("/llm/{agent_id}/{session_id}/chat/completions")
 async def llm_proxy(agent_id: str, session_id: str, request: Request):
-    if agent_id not in ("technical_lead", "hiring_manager"):
+    if agent_id not in AGENTS:
         raise HTTPException(400, "unknown agent_id")
 
     state = session_store.get(session_id)

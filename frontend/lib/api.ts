@@ -6,7 +6,7 @@ export interface StartSessionResponse {
   channel: string;
   candidate_uid: number;
   candidate_token: string;
-  agent_uids: { technical_lead: number; hiring_manager: number };
+  agent_uids: { technical_lead: number; hiring_manager: number; culture_fit: number };
   mock_mode: boolean;
 }
 
@@ -16,10 +16,12 @@ export interface Scorecard {
   communication: number;
   ownership: number;
   system_design: number;
+  culture_fit: number;
   overall: number;
   recommendation: string;
   technical_lead_comment: string;
   hiring_manager_comment: string;
+  culture_fit_comment: string;
 }
 
 export async function startSession(candidateName: string, role: string): Promise<StartSessionResponse> {

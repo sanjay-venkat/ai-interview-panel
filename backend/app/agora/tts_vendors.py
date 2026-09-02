@@ -3,10 +3,12 @@
 Why this exists: ElevenLabs' free tier is routinely blocked by Agora's
 abuse-detection for real-time streaming use (confirmed in Agora's own docs),
 which would silently kill audio output mid-demo. Cartesia's free tier
-(20K credits/mo, but crucially 2 concurrent streams — exactly our two-agent
-case — and sub-90ms latency) actually works for this use case, so it's the
-default. Swap vendors with one env var (TTS_VENDOR) instead of editing code
-if you upgrade to a paid ElevenLabs plan or want to compare voice quality.
+(20K credits/mo, 2 concurrent *generations* — fine even for our 3-agent
+panel since the floor controller only ever lets one agent generate speech
+at a time — and sub-90ms latency) actually works for this use case, so it's
+the default. Swap vendors with one env var (TTS_VENDOR) instead of editing
+code if you upgrade to a paid ElevenLabs plan or want to compare voice
+quality.
 """
 
 from app.config import settings
@@ -16,19 +18,19 @@ ELEVENLABS_MODEL = "eleven_flash_v2_5"  # ElevenLabs' lowest-latency model
 
 
 def _cartesia_voice_id(agent_id: str) -> str:
-    return (
-        settings.CARTESIA_VOICE_ID_TECHNICAL
-        if agent_id == "technical_lead"
-        else settings.CARTESIA_VOICE_ID_MANAGER
-    )
+    return {
+        "technical_lead": settings.CARTESIA_VOICE_ID_TECHNICAL,
+        "hiring_manager": settings.CARTESIA_VOICE_ID_MANAGER,
+        "culture_fit": settings.CARTESIA_VOICE_ID_CULTURE,
+    }[agent_id]
 
 
 def _elevenlabs_voice_id(agent_id: str) -> str:
-    return (
-        settings.ELEVENLABS_VOICE_ID_TECHNICAL
-        if agent_id == "technical_lead"
-        else settings.ELEVENLABS_VOICE_ID_MANAGER
-    )
+    return {
+        "technical_lead": settings.ELEVENLABS_VOICE_ID_TECHNICAL,
+        "hiring_manager": settings.ELEVENLABS_VOICE_ID_MANAGER,
+        "culture_fit": settings.ELEVENLABS_VOICE_ID_CULTURE,
+    }[agent_id]
 
 
 def _cartesia_config(agent_id: str) -> dict:
@@ -64,8 +66,18 @@ _BUILDERS = {
 # captured at import time) so validate_tts_config() always reflects the
 # current .env, not whatever was loaded when this module first imported.
 _REQUIRED_KEYS = {
-    "cartesia": ["CARTESIA_API_KEY", "CARTESIA_VOICE_ID_TECHNICAL", "CARTESIA_VOICE_ID_MANAGER"],
-    "elevenlabs": ["ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID_TECHNICAL", "ELEVENLABS_VOICE_ID_MANAGER"],
+    "cartesia": [
+        "CARTESIA_API_KEY",
+        "CARTESIA_VOICE_ID_TECHNICAL",
+        "CARTESIA_VOICE_ID_MANAGER",
+        "CARTESIA_VOICE_ID_CULTURE",
+    ],
+    "elevenlabs": [
+        "ELEVENLABS_API_KEY",
+        "ELEVENLABS_VOICE_ID_TECHNICAL",
+        "ELEVENLABS_VOICE_ID_MANAGER",
+        "ELEVENLABS_VOICE_ID_CULTURE",
+    ],
 }
 
 

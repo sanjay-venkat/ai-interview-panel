@@ -8,7 +8,7 @@ from app.agora.tts_vendors import build_tts_config
 from app.config import settings
 
 CANDIDATE_UID = 1000
-AGENT_UIDS = {"technical_lead": 2001, "hiring_manager": 2002}
+AGENT_UIDS = {"technical_lead": 2001, "hiring_manager": 2002, "culture_fit": 2003}
 
 DEEPGRAM_MODEL = "nova-3"
 
@@ -18,8 +18,27 @@ def _auth_header() -> dict:
     return {"Authorization": f"Basic {base64.b64encode(raw).decode()}"}
 
 
-def _build_join_payload(agent_id: str, session_id: str, channel: str, system_prompt: str, greeting: str) -> dict:
+def _build_join_payload(
+    agent_id: str, session_id: str, channel: str, system_prompt: str, greeting: str | None
+) -> dict:
     llm_url = f"{settings.PUBLIC_BACKEND_URL}/llm/{agent_id}/{session_id}/chat/completions"
+    llm_block = {
+        "vendor": "custom",
+        "style": "openai",
+        "url": llm_url,
+        "system_messages": [{"role": "system", "content": system_prompt}],
+        "failure_message": "Sorry, could you say that again?",
+        "max_history": 20,
+        "params": {"model": settings.GROQ_MODEL},
+    }
+    # Only one agent (technical_lead) gets a static greeting_message, spoken
+    # immediately on join before any candidate input. If every agent had one,
+    # all three would speak simultaneously the instant they join — the other
+    # two introduce themselves dynamically on their forced first turn instead
+    # (see llm_proxy.py FIRST_TURN_INTROS), staggered by the floor controller.
+    if greeting:
+        llm_block["greeting_message"] = greeting
+
     return {
         "name": f"{session_id}-{agent_id}",
         "properties": {
@@ -38,22 +57,13 @@ def _build_join_payload(agent_id: str, session_id: str, channel: str, system_pro
                     "language": "en",
                 },
             },
-            "llm": {
-                "vendor": "custom",
-                "style": "openai",
-                "url": llm_url,
-                "system_messages": [{"role": "system", "content": system_prompt}],
-                "greeting_message": greeting,
-                "failure_message": "Sorry, could you say that again?",
-                "max_history": 20,
-                "params": {"model": settings.GROQ_MODEL},
-            },
+            "llm": llm_block,
             "tts": build_tts_config(agent_id),
         },
     }
 
 
-async def join_agent(agent_id: str, session_id: str, channel: str, system_prompt: str, greeting: str) -> str:
+async def join_agent(agent_id: str, session_id: str, channel: str, system_prompt: str, greeting: str | None) -> str:
     if not settings.AGORA_CUSTOMER_ID or not settings.AGORA_CUSTOMER_SECRET or settings.effective_mock_mode:
         return f"mock-agent-{uuid.uuid4().hex[:8]}"
 

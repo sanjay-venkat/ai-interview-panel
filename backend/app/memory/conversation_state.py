@@ -22,7 +22,7 @@ class TopicSignal:
 
 @dataclass
 class TranscriptLine:
-    speaker: str  # "candidate" | "technical_lead" | "hiring_manager"
+    speaker: str  # "candidate" | "technical_lead" | "hiring_manager" | "culture_fit"
     text: str
     ts: float = field(default_factory=time.time)
 

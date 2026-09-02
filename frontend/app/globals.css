@@ -134,9 +134,15 @@ button {
 
 .agent-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 20px;
+}
+
+@media (max-width: 720px) {
+  .agent-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .agent-card {
@@ -228,6 +234,10 @@ button {
   color: var(--good);
 }
 
+.transcript-line.culture_fit .speaker {
+  color: var(--warn);
+}
+
 .score-bar-row {
   display: flex;
   align-items: center;
@@ -281,7 +291,7 @@ button {
 
 .scorecard-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }

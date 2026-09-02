@@ -84,7 +84,7 @@ export default function Page() {
     return (
       <div className="setup-card">
         <h1>AI Interview Panel</h1>
-        <p>Two AI interviewers, one live conversation. Grant mic access when prompted.</p>
+        <p>Three AI interviewers, one live conversation. Grant mic access when prompted.</p>
         <div className="field">
           <label>Your name</label>
           <input value={candidateName} onChange={(e) => setCandidateName(e.target.value)} placeholder="Jane Doe" />
@@ -108,17 +108,26 @@ export default function Page() {
           <h2>Final Scorecard</h2>
           <div className="recommendation">{scorecard.recommendation}</div>
           <div className="scorecard-grid">
-            {(["technical_depth", "problem_solving", "communication", "ownership", "system_design", "overall"] as const).map(
-              (k) => (
-                <div className="scorecard-stat" key={k}>
-                  <div className="val">{scorecard[k]?.toFixed?.(1) ?? scorecard[k]}</div>
-                  <div className="lbl">{k.replace("_", " ")}</div>
-                </div>
-              )
-            )}
+            {(
+              [
+                "technical_depth",
+                "problem_solving",
+                "communication",
+                "ownership",
+                "system_design",
+                "culture_fit",
+                "overall",
+              ] as const
+            ).map((k) => (
+              <div className="scorecard-stat" key={k}>
+                <div className="val">{scorecard[k]?.toFixed?.(1) ?? scorecard[k]}</div>
+                <div className="lbl">{k.replace("_", " ")}</div>
+              </div>
+            ))}
           </div>
           <p><b>Technical Lead:</b> {scorecard.technical_lead_comment}</p>
           <p><b>Hiring Manager:</b> {scorecard.hiring_manager_comment}</p>
+          <p><b>Culture &amp; Values Partner:</b> {scorecard.culture_fit_comment}</p>
         </div>
       </div>
     );
@@ -163,6 +172,12 @@ export default function Page() {
           speaking={speaker === "hiring_manager"}
           latencyMs={snapshot?.latency_ms?.hiring_manager}
         />
+        <AgentCard
+          name="Culture & Values"
+          role="Teamwork, conflict, adaptability"
+          speaking={speaker === "culture_fit"}
+          latencyMs={snapshot?.latency_ms?.culture_fit}
+        />
       </div>
 
       <div className="bottom-row">
@@ -172,7 +187,14 @@ export default function Page() {
             {(snapshot?.transcript ?? []).map((line, i) => (
               <div key={i} className={`transcript-line ${line.speaker}`}>
                 <span className="speaker">
-                  {line.speaker === "candidate" ? "You" : line.speaker === "technical_lead" ? "Tech Lead" : "Hiring Mgr"}:
+                  {line.speaker === "candidate"
+                    ? "You"
+                    : line.speaker === "technical_lead"
+                    ? "Tech Lead"
+                    : line.speaker === "hiring_manager"
+                    ? "Hiring Mgr"
+                    : "Culture"}
+                  :
                 </span>
                 {line.text}
               </div>
@@ -195,6 +217,7 @@ export default function Page() {
         <div className="latency-grid">
           <div>Tech Lead TTFA: <b>{Math.round(snapshot?.latency_ms?.technical_lead ?? 0)}ms</b></div>
           <div>Hiring Mgr TTFA: <b>{Math.round(snapshot?.latency_ms?.hiring_manager ?? 0)}ms</b></div>
+          <div>Culture TTFA: <b>{Math.round(snapshot?.latency_ms?.culture_fit ?? 0)}ms</b></div>
           <div>Turn: <b>{snapshot?.turn_count ?? 0}</b></div>
         </div>
       </div>
