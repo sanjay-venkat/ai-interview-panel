@@ -21,6 +21,17 @@ EPOCH_WINDOW_SECONDS = 3.5
 # line and let no agent claim the floor until the candidate is done.
 CONTINUATION_WINDOW_SECONDS = 6.0
 
+# Separately, Agora's VAD can end-point a turn on the candidate's very first
+# few words (a false start, "um, so...", a breath) — technically a complete
+# "turn" by Agora's definition, but not remotely a finished thought. Without
+# a floor beneath it, whichever panelist scored highest would immediately
+# ask its next question, barely giving the candidate a chance to speak.
+# So after any panelist actually asks something, the floor stays closed for
+# a minimum thinking window regardless of what Agora sends us in the
+# meantime — the candidate's speech still gets transcribed as normal, we
+# just won't let anyone respond to it until they've had a moment to think.
+MIN_THINKING_SECONDS = 7.0
+
 
 def _looks_like_continuation(prev_text: str, new_text: str) -> bool:
     prev = prev_text.strip().lower()
@@ -113,10 +124,18 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
     agent_order = state.panel_ids()
     scores = {p.id: score_agent(state, p, signals) for p in state.panel}
 
-    if continuing:
-        # Candidate is still mid-thought — this call's text is just a fuller
-        # version of what they were already saying. Don't let anyone claim
-        # the floor over a fragment; wait for them to actually finish.
+    thinking_time_left = (
+        not continuing
+        and state.last_panelist_turn_ts > 0
+        and (time.time() - state.last_panelist_turn_ts) < MIN_THINKING_SECONDS
+    )
+    # Either kind of "not a real turn yet" skips floor selection the same
+    # way — the candidate is still forming their answer, whether that's
+    # because this call is a fragment of one utterance, or because they've
+    # barely had time to start since the last question.
+    hold_floor = continuing or thinking_time_left
+
+    if hold_floor:
         winner = None
     elif state.turn_count < len(agent_order):
         # First len(panel) turns are forced, one per panelist in order, so
@@ -135,6 +154,8 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
 
     if continuing:
         reason = "candidate still mid-answer (fragment merged into previous line)"
+    elif thinking_time_left:
+        reason = "giving the candidate a moment to think before the panel responds"
     else:
         weakness = scores[winner]["weakness"] if winner else 0
         if weakness > 0.4:
@@ -144,7 +165,7 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
         else:
             reason = "no agent met the speaking threshold"
 
-    return FloorDecision(winner=winner, scores=scores, reason=reason, continuation=continuing)
+    return FloorDecision(winner=winner, scores=scores, reason=reason, continuation=hold_floor)
 
 
 async def resolve_decision(state: ConversationState, agent_id: str, candidate_text: str) -> FloorDecision:

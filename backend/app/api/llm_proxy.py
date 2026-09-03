@@ -75,6 +75,7 @@ async def _speak_stream(agent_id: str, session_id: str, candidate_text: str, com
     state.questions_asked.append(full_text.strip())
     state.transcript.append(TranscriptLine(speaker=agent_id, text=full_text.strip()))
     state.current_speaker = "candidate"
+    state.last_panelist_turn_ts = time.time()
     broadcast(state)
     await maybe_conclude_early(state)
 

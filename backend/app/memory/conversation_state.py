@@ -72,6 +72,9 @@ class ConversationState:
     agent_last_spoke_ts: dict[str, float] = field(default_factory=dict)
     agent_last_spoke_turn: dict[str, int] = field(default_factory=dict)
     turn_count: int = 0
+    # 0.0 means "no panelist has spoken via the floor controller yet" — the
+    # very first forced turn isn't gated by the thinking-time cooldown.
+    last_panelist_turn_ts: float = 0.0
 
     # Each interviewer agent runs its own independent ASR pipeline against the
     # same candidate audio, so their transcripts of "the same" utterance won't
