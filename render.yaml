@@ -1,0 +1,47 @@
+services:
+  - type: web
+    name: ai-interview-panel-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: AGORA_APP_ID
+        sync: false
+      - key: AGORA_APP_CERTIFICATE
+        sync: false
+      - key: AGORA_CUSTOMER_ID
+        sync: false
+      - key: AGORA_CUSTOMER_SECRET
+        sync: false
+      - key: PUBLIC_BACKEND_URL
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: TTS_VENDOR
+        value: cartesia
+      - key: CARTESIA_API_KEY
+        sync: false
+      - key: CARTESIA_VOICE_ID_TECHNICAL
+        sync: false
+      - key: CARTESIA_VOICE_ID_MANAGER
+        sync: false
+      - key: CARTESIA_VOICE_ID_CULTURE
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID_TECHNICAL
+        sync: false
+      - key: ELEVENLABS_VOICE_ID_MANAGER
+        sync: false
+      - key: ELEVENLABS_VOICE_ID_CULTURE
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b
+      - key: MOCK_MODE
+        value: "false"
+      - key: CORS_ORIGINS
+        sync: false

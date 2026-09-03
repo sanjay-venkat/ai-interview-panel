@@ -135,41 +135,41 @@ burning API calls or fighting audio issues first.
 Once the local + ngrok flow works end-to-end, swap the tunnel for real hosting
 so the demo doesn't depend on your laptop staying online.
 
-### Backend → Back4app Containers
+### Backend → Render
 
-**Not Render** — Render's free tier does not support WebSockets (confirmed
-against their current docs), and this backend's live transcript/topic/
-latency UI depends on one (`/ws/{session_id}`). Back4app Containers'
-free tier does support WebSockets, needs no credit card, and builds
-`backend/Dockerfile` directly.
+Render's free web-service tier does support inbound WebSockets (verified
+against their current docs as of 2026-09-03 — an earlier version of this
+doc said otherwise; that was stale), which this backend's live transcript/
+topic/latency UI depends on (`/ws/{session_id}`). No credit card required.
+A `render.yaml` blueprint at the repo root already describes this service
+(Docker runtime, `backend/Dockerfile`, `/health` healthcheck) so Render can
+provision it in one pass instead of manual field-by-field setup.
 
-1. Push this repo to GitHub (done).
-2. Sign up at [back4app.com](https://www.back4app.com) (GitHub sign-in is
-   the fastest path) and open the **Containers** product.
-3. Choose to create a new Container app, then **Connect with your GitHub**
-   — this installs the Back4app Containers GitHub App; authorize it for
-   this repo (or your whole account).
-4. Select the `ai-interview-panel` repo from the list.
-5. On "Prepare your Deployment": set **App Name**, **Branch** = `main`,
-   **Root** = `backend` (this is where the Dockerfile is), leave
-   **Auto Deployment** on if you want pushes to redeploy automatically,
-   and add every variable from `backend/.env.example` under
-   **Environment Variables** (copy the actual values from your local
-   `backend/.env` — never paste secrets into chat/docs). Leave
-   `PUBLIC_BACKEND_URL` and `CORS_ORIGINS` blank for now.
-6. Click **Create App**. You land on the App Overview with live deployment
-   logs — wait for status `ready`.
-7. Your app's URL is under the sidebar **Actions** dropdown → **URL link**,
-   in the form `https://<app-name>-<your-username>.b4a.run`.
-8. Go back to Environment Variables, set `PUBLIC_BACKEND_URL` to that URL
-   (no trailing slash), save/redeploy — this is what Agora's ConvoAI engine
-   calls for `/llm/*`, so it must be the live URL, not localhost/ngrok.
-9. Set `CORS_ORIGINS` to your deployed frontend's URL (from the Vercel step
-   below) once you have it, and redeploy again.
+1. Push this repo to GitHub (with `render.yaml` included).
+2. Sign up at [render.com](https://render.com) (GitHub sign-in is the
+   fastest path) — no card needed for the free tier.
+3. Dashboard → **New** → **Blueprint**, pick this repo. Render reads
+   `render.yaml` and proposes the `ai-interview-panel-backend` web service.
+4. Click through to create it. Render will pause and ask you to fill in
+   every env var marked `sync: false` in `render.yaml` (all the secrets from
+   `backend/.env.example`) — copy the actual values from your local
+   `backend/.env` **directly into Render's dashboard yourself**; never paste
+   secrets into chat/docs. Leave `PUBLIC_BACKEND_URL` and `CORS_ORIGINS`
+   blank for now.
+5. Deploy. Watch the build logs until status is `Live`.
+6. Your app's URL is shown at the top of the service page, in the form
+   `https://ai-interview-panel-backend.onrender.com`.
+7. Go back to **Environment**, set `PUBLIC_BACKEND_URL` to that URL (no
+   trailing slash), save — this is what Agora's ConvoAI engine calls for
+   `/llm/*`, so it must be the live URL, not localhost/ngrok. Render
+   redeploys automatically on env var changes.
+8. Set `CORS_ORIGINS` to your deployed frontend's URL (from the Vercel step
+   below) once you have it, and save again.
 
-Free tier is 0.25 CPU / 256MB RAM / 600 active hours per month — plenty for
-this app (it's I/O-bound, not compute-heavy) — but it can still sleep after
-extended inactivity; ping `/health` before a live demo to warm it up.
+Free tier gives 750 instance-hours/month (more than a full month, so a
+lightly-used demo won't hit the cap) but spins the service down after 15
+minutes with no inbound traffic, cold-starting in about a minute on the next
+request; ping `/health` before a live demo to warm it up.
 
 ### Frontend → Vercel
 
