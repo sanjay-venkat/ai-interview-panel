@@ -57,6 +57,7 @@ class ConversationState:
     role_key: str = "software_engineer"
     resume_text: str = ""
     channel: str = ""
+    started_at: float = field(default_factory=time.time)
 
     panel: list[PanelistRuntime] = field(default_factory=list)
 
@@ -101,6 +102,7 @@ class ConversationState:
             "session_id": self.session_id,
             "candidate_name": self.candidate_name,
             "role_title": self.role,
+            "started_at": self.started_at,
             "panel": [{"id": p.id, "title": p.title} for p in self.panel],
             "phase": self.phase.value,
             "current_speaker": self.current_speaker,

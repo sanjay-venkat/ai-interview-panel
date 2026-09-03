@@ -1,4 +1,5 @@
 import asyncio
+import time
 import uuid
 
 from app.agents.prompts import build_greeting, build_static_prompt, build_system_prompt
@@ -27,6 +28,10 @@ MAX_INTERVIEW_SECONDS = 45 * 60
 MIN_TURNS_PER_PANELIST_FOR_EARLY_END = 2
 MIN_STRONG_TOPICS_FOR_EARLY_END = 5
 STRONG_TOPIC_CONFIDENCE = 0.75
+# However fast the candidate answers, the panel won't exit before this —
+# an interview needs at least 30 minutes on the clock before "satisfied"
+# is allowed to end it early.
+MIN_SECONDS_BEFORE_EARLY_END = 30 * 60
 
 # Short pause before actually disconnecting agents on an early/satisfied
 # end, so the last thing spoken has a moment to finish playing out over
@@ -141,6 +146,8 @@ async def _time_limit_watchdog(session_id: str):
 
 def _panel_satisfied(state: ConversationState) -> bool:
     if not state.panel:
+        return False
+    if time.time() - state.started_at < MIN_SECONDS_BEFORE_EARLY_END:
         return False
     if state.turn_count < len(state.panel) * MIN_TURNS_PER_PANELIST_FOR_EARLY_END:
         return False
