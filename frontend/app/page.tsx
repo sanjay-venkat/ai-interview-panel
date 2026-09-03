@@ -160,7 +160,7 @@ export default function Page() {
             rows={5}
           />
         </div>
-        {error && <p style={{ color: "#ff8a99", fontSize: 13 }}>{error}</p>}
+        {error && <p style={{ color: "#e0365a", fontSize: 13, fontWeight: 600 }}>{error}</p>}
         <button className="btn-primary" onClick={handleStart} disabled={stage === "connecting" || !roleKey}>
           {stage === "connecting" ? "Connecting…" : "Start Interview"}
         </button>

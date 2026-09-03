@@ -1,13 +1,25 @@
 :root {
-  --bg: #0b0d12;
-  --panel: #131722;
-  --panel-border: #232838;
-  --text: #e6e9f0;
-  --muted: #8a92a6;
-  --accent: #5b8cff;
-  --accent-2: #ff7a59;
-  --good: #3ddc97;
-  --warn: #ffb020;
+  --bg: #f4f6fd;
+  --bg-2: #eef1fb;
+  --panel: #ffffff;
+  --panel-border: #e4e8f7;
+  --text: #23263a;
+  --muted: #6b7290;
+  --accent: #6d5ef8;
+  --accent-2: #ff6b8b;
+  --good: #17b26a;
+  --warn: #f59e0b;
+
+  --agent-1: #6d5ef8;
+  --agent-1-bg: #f1eeff;
+  --agent-2: #14b8a6;
+  --agent-2-bg: #e8fbf8;
+  --agent-3: #fb7185;
+  --agent-3-bg: #ffeef1;
+
+  --shadow-sm: 0 1px 2px rgba(35, 38, 58, 0.06), 0 1px 3px rgba(35, 38, 58, 0.05);
+  --shadow-md: 0 4px 14px rgba(85, 74, 219, 0.08), 0 2px 6px rgba(35, 38, 58, 0.05);
+  --shadow-glow: 0 0 0 1px var(--accent), 0 8px 24px -6px rgba(109, 94, 248, 0.45);
 }
 
 * {
@@ -18,7 +30,9 @@ html,
 body {
   padding: 0;
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  background: radial-gradient(1200px 800px at 10% -10%, #ece7ff 0%, transparent 55%),
+    radial-gradient(1000px 700px at 100% 0%, #e2fbf6 0%, transparent 50%), var(--bg);
   color: var(--text);
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
@@ -35,17 +49,37 @@ button {
 }
 
 .setup-card {
-  max-width: 420px;
-  margin: 10vh auto;
+  max-width: 440px;
+  margin: 8vh auto;
   background: var(--panel);
   border: 1px solid var(--panel-border);
-  border-radius: 16px;
-  padding: 32px;
+  border-radius: 20px;
+  padding: 36px;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.setup-card::before {
+  content: "";
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--agent-2));
+  opacity: 0.16;
 }
 
 .setup-card h1 {
-  font-size: 22px;
-  margin-bottom: 4px;
+  font-size: 24px;
+  margin-bottom: 6px;
+  background: linear-gradient(90deg, var(--accent), var(--agent-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  display: inline-block;
 }
 
 .setup-card p {
@@ -61,6 +95,7 @@ button {
 .field label {
   display: block;
   font-size: 13px;
+  font-weight: 600;
   color: var(--muted);
   margin-bottom: 6px;
 }
@@ -70,12 +105,21 @@ button {
 .field textarea {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--panel-border);
-  background: #0e121c;
+  border-radius: 10px;
+  border: 1.5px solid var(--panel-border);
+  background: #fafbff;
   color: var(--text);
   font-size: 14px;
   font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(109, 94, 248, 0.15);
 }
 
 .field input[type="file"] {
@@ -96,46 +140,72 @@ button {
 
 .panel-preview {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--accent);
+  font-weight: 600;
   margin-top: 6px;
 }
 
 .btn-primary {
   width: 100%;
-  padding: 12px;
-  border-radius: 8px;
+  padding: 13px;
+  border-radius: 10px;
   border: none;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), #8b7bff);
   color: white;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 15px;
+  box-shadow: 0 6px 16px -4px rgba(109, 94, 248, 0.55);
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px -4px rgba(109, 94, 248, 0.6);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
   padding: 10px 18px;
-  border-radius: 8px;
-  border: 1px solid var(--panel-border);
-  background: transparent;
+  border-radius: 10px;
+  border: 1.5px solid var(--panel-border);
+  background: var(--panel);
   color: var(--text);
   font-size: 14px;
+  font-weight: 600;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.btn-secondary:hover {
+  border-color: var(--accent);
+  background: var(--agent-1-bg);
 }
 
 .btn-danger {
   padding: 10px 18px;
-  border-radius: 8px;
-  border: 1px solid #4a2230;
-  background: #2a1420;
-  color: #ff8a99;
+  border-radius: 10px;
+  border: 1.5px solid #ffd3da;
+  background: #fff0f3;
+  color: #e0365a;
   font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #ffe3e8;
 }
 
 .mock-badge {
   display: inline-block;
-  background: var(--warn);
+  background: linear-gradient(90deg, var(--warn), #fbbf24);
   color: #1a1300;
   font-size: 11px;
   font-weight: 700;
-  padding: 2px 8px;
+  padding: 2px 10px;
   border-radius: 999px;
   margin-left: 8px;
 }
@@ -148,7 +218,7 @@ button {
 }
 
 .top-bar h1 {
-  font-size: 18px;
+  font-size: 20px;
   margin: 0;
 }
 
@@ -166,19 +236,31 @@ button {
 
 .agent-card {
   background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
+  border: 1.5px solid var(--panel-border);
+  border-top: 4px solid var(--agent-1);
+  border-radius: 14px;
   padding: 16px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.agent-row .agent-card:nth-child(1) {
+  border-top-color: var(--agent-1);
+}
+.agent-row .agent-card:nth-child(2) {
+  border-top-color: var(--agent-2);
+}
+.agent-row .agent-card:nth-child(3) {
+  border-top-color: var(--agent-3);
 }
 
 .agent-card.speaking {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent) inset, 0 0 20px -4px var(--accent);
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-2px);
 }
 
 .agent-card .name {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 15px;
 }
 
@@ -194,7 +276,7 @@ button {
   height: 8px;
   border-radius: 50%;
   margin-right: 6px;
-  background: var(--muted);
+  background: #cbd0e6;
 }
 
 .status-dot.on {
@@ -210,16 +292,18 @@ button {
 .panel {
   background: var(--panel);
   border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 14px;
+  padding: 18px;
   margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
 }
 
 .panel h2 {
   font-size: 13px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--accent);
   margin: 0 0 12px;
 }
 
@@ -228,21 +312,32 @@ button {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .transcript-line {
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.45;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg-2);
 }
 
 .transcript-line .speaker {
-  font-weight: 600;
+  font-weight: 700;
   margin-right: 6px;
 }
 
+.transcript-line.candidate {
+  background: var(--agent-3-bg);
+}
+
 .transcript-line.candidate .speaker {
-  color: var(--accent-2);
+  color: var(--agent-3);
+}
+
+.transcript-line.panelist {
+  background: var(--agent-1-bg);
 }
 
 .transcript-line.panelist .speaker {
@@ -267,14 +362,14 @@ button {
 .score-bar-track {
   flex: 1;
   height: 8px;
-  background: #0e121c;
+  background: var(--bg-2);
   border-radius: 999px;
   overflow: hidden;
 }
 
 .score-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--good));
+  background: linear-gradient(90deg, var(--accent), var(--agent-2));
 }
 
 .bottom-row {
@@ -308,31 +403,42 @@ button {
 }
 
 .scorecard-stat {
-  background: #0e121c;
+  background: var(--bg-2);
   border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: 12px;
+  padding: 14px;
   text-align: center;
 }
 
 .scorecard-stat .val {
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 800;
+  background: linear-gradient(90deg, var(--accent), var(--agent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .scorecard-stat .lbl {
   font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
+  font-weight: 600;
 }
 
 .recommendation {
   text-align: center;
   font-weight: 700;
   font-size: 16px;
-  padding: 12px;
-  border-radius: 10px;
-  background: rgba(61, 220, 151, 0.12);
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #e6fbf1, #eafcf9);
   color: var(--good);
   margin-bottom: 16px;
+}
+
+@media (max-width: 720px) {
+  .bottom-row {
+    grid-template-columns: 1fr;
+  }
 }

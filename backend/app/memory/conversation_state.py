@@ -32,6 +32,7 @@ class FloorDecision:
     winner: Optional[str]  # panelist id or None if nobody should speak
     scores: dict
     reason: str
+    continuation: bool = False  # merged into the prior candidate line, not a new turn
 
 
 @dataclass

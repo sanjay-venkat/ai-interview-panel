@@ -8,6 +8,27 @@ RECENT_SPEAK_PENALTY = 0.6
 RECENT_SPEAK_WINDOW_TURNS = 1
 EPOCH_WINDOW_SECONDS = 3.5
 
+# Agora's ConvoAI engine calls our /llm/* endpoint once per VAD-detected
+# turn boundary — but a candidate who pauses mid-thought (fillers, gathering
+# words) can trigger several of these boundaries for what is really one
+# continuous answer. Each such call arrives with Deepgram's running
+# transcript of that answer so far, so consecutive calls show up as one
+# candidate_text being a growing extension of the last. Without handling
+# this, every fragment became its own duplicate, ever-growing transcript
+# line AND its own floor decision — letting different agents jump in on
+# incomplete sentences (the "I didn't catch that" / crossed-wires behavior).
+# We instead merge same-utterance fragments into the existing transcript
+# line and let no agent claim the floor until the candidate is done.
+CONTINUATION_WINDOW_SECONDS = 6.0
+
+
+def _looks_like_continuation(prev_text: str, new_text: str) -> bool:
+    prev = prev_text.strip().lower()
+    new = new_text.strip().lower()
+    if not prev or not new:
+        return False
+    return new.startswith(prev) or prev.startswith(new)
+
 
 def _relevance(panelist: PanelistRuntime, signals: Signals) -> float:
     return min(1.0, 0.25 * keyword_hits(signals.lower_text, panelist.keywords))
@@ -60,7 +81,20 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
     Runs exactly once per turn epoch, so this is also the single place we
     log the candidate's line — avoids double-logging from both agents'
     independent transcripts of the same utterance."""
-    state.transcript.append(TranscriptLine(speaker="candidate", text=candidate_text))
+    last = state.transcript[-1] if state.transcript else None
+    continuing = (
+        last is not None
+        and last.speaker == "candidate"
+        and (time.time() - last.ts) < CONTINUATION_WINDOW_SECONDS
+        and _looks_like_continuation(last.text, candidate_text)
+    )
+    if continuing:
+        if len(candidate_text) >= len(last.text):
+            last.text = candidate_text
+        last.ts = time.time()
+    else:
+        state.transcript.append(TranscriptLine(speaker="candidate", text=candidate_text))
+
     signals = extract_signals(candidate_text)
 
     all_keywords: set[str] = set()
@@ -79,11 +113,16 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
     agent_order = state.panel_ids()
     scores = {p.id: score_agent(state, p, signals) for p in state.panel}
 
-    # First len(panel) turns are forced, one per panelist in order, so every
-    # interviewer is guaranteed to speak early in the demo rather than leaving
-    # it to chance if the candidate's opening answer happens to score
-    # entirely toward one panelist.
-    if state.turn_count < len(agent_order):
+    if continuing:
+        # Candidate is still mid-thought — this call's text is just a fuller
+        # version of what they were already saying. Don't let anyone claim
+        # the floor over a fragment; wait for them to actually finish.
+        winner = None
+    elif state.turn_count < len(agent_order):
+        # First len(panel) turns are forced, one per panelist in order, so
+        # every interviewer is guaranteed to speak early in the demo rather
+        # than leaving it to chance if the candidate's opening answer happens
+        # to score entirely toward one panelist.
         winner = agent_order[state.turn_count]
     else:
         best = max(scores.items(), key=lambda kv: kv[1]["final"])
@@ -94,15 +133,18 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
             # panelist has gone longest without a turn speaks next.
             winner = min(agent_order, key=lambda a: state.agent_last_spoke_turn.get(a, -1))
 
-    weakness = scores[winner]["weakness"] if winner else 0
-    if weakness > 0.4:
-        reason = f"{winner} detected a weak/hedged claim"
-    elif winner:
-        reason = f"{winner} has topical relevance"
+    if continuing:
+        reason = "candidate still mid-answer (fragment merged into previous line)"
     else:
-        reason = "no agent met the speaking threshold"
+        weakness = scores[winner]["weakness"] if winner else 0
+        if weakness > 0.4:
+            reason = f"{winner} detected a weak/hedged claim"
+        elif winner:
+            reason = f"{winner} has topical relevance"
+        else:
+            reason = "no agent met the speaking threshold"
 
-    return FloorDecision(winner=winner, scores=scores, reason=reason)
+    return FloorDecision(winner=winner, scores=scores, reason=reason, continuation=continuing)
 
 
 async def resolve_decision(state: ConversationState, agent_id: str, candidate_text: str) -> FloorDecision:
@@ -153,10 +195,13 @@ async def resolve_decision(state: ConversationState, agent_id: str, candidate_te
 
     async with state.lock:
         state.current_epoch_decision = decision
-        state.turn_count += 1
-        if decision.winner:
-            state.agent_last_spoke_turn[decision.winner] = state.turn_count
-            state.agent_last_spoke_ts[decision.winner] = time.time()
+        if not decision.continuation:
+            # A continuation isn't a real turn — don't advance turn_count or
+            # burn a forced-order slot on a mid-answer fragment.
+            state.turn_count += 1
+            if decision.winner:
+                state.agent_last_spoke_turn[decision.winner] = state.turn_count
+                state.agent_last_spoke_ts[decision.winner] = time.time()
         fut2 = state.current_epoch_future
         state.current_epoch_future = None
         if fut2 and not fut2.done():
