@@ -29,4 +29,6 @@ export interface Snapshot {
   transcript: TranscriptLine[];
   latency_ms: Record<string, number>;
   scorecard: Record<string, unknown> | null;
+  proctor_tilt_count: number;
+  proctor_away_count: number;
 }

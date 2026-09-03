@@ -442,3 +442,87 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Camera / integrity monitor ---------- */
+.camera-monitor {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 50;
+  width: 168px;
+  background: var(--panel);
+  border: 2px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: var(--shadow-md);
+  transition: border-color 0.2s;
+}
+
+.camera-monitor.status-ok {
+  border-color: var(--good);
+}
+
+.camera-monitor.status-tilt,
+.camera-monitor.status-away {
+  border-color: var(--warn);
+  animation: camera-pulse 1s ease-in-out infinite;
+}
+
+.camera-monitor.status-unavailable {
+  border-color: var(--panel-border);
+  opacity: 0.7;
+}
+
+@keyframes camera-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+}
+
+.camera-monitor-video {
+  width: 100%;
+  border-radius: 8px;
+  display: block;
+  background: #0e121c;
+  transform: scaleX(-1);
+}
+
+.camera-monitor-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 6px;
+}
+
+.camera-monitor-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.status-ok .camera-monitor-dot {
+  background: var(--good);
+  box-shadow: 0 0 6px var(--good);
+}
+
+.status-tilt .camera-monitor-dot,
+.status-away .camera-monitor-dot {
+  background: var(--warn);
+  box-shadow: 0 0 6px var(--warn);
+}
+
+.camera-monitor-counts {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.integrity-summary {
+  border-top: 1px solid var(--panel-border);
+  margin-top: 12px;
+  padding-top: 10px;
+}

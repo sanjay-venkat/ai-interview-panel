@@ -88,6 +88,15 @@ class ConversationState:
     latency_ms: dict[str, float] = field(default_factory=dict)
     scorecard: Optional[dict] = None
 
+    # Browser-side webcam proctoring (see frontend/lib/faceProctor.ts): the
+    # candidate's face is analyzed locally with OpenCV.js and only debounced
+    # incidents — not video — are reported here. "tilt" = sustained head
+    # tilt past a threshold; "away" = no face detected (looked away, left
+    # frame, or turned far enough the frontal-face cascade lost it).
+    proctor_tilt_count: int = 0
+    proctor_away_count: int = 0
+    proctor_events: list[dict] = field(default_factory=list)
+
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     subscribers: list[asyncio.Queue] = field(default_factory=list)
 
@@ -116,6 +125,8 @@ class ConversationState:
             ],
             "latency_ms": self.latency_ms,
             "scorecard": self.scorecard,
+            "proctor_tilt_count": self.proctor_tilt_count,
+            "proctor_away_count": self.proctor_away_count,
         }
 
 

@@ -116,6 +116,15 @@ async def _conclude(state: ConversationState, grace_seconds: float = 0.0) -> dic
         await leave_agent(agora_agent_id)
 
     scorecard = await deliberate(state)
+    # Deterministic, not LLM-authored — the panel's written comments may or
+    # may not mention proctoring, but the counts themselves must always be
+    # accurate, so they're attached directly rather than trusted to the
+    # model's output.
+    scorecard["integrity"] = {
+        "tilt_events": state.proctor_tilt_count,
+        "away_events": state.proctor_away_count,
+    }
+    state.scorecard = scorecard
     state.phase = Phase.COMPLETE
     broadcast(state)
 

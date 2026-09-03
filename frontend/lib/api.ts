@@ -1,4 +1,5 @@
 import { PanelMember } from "./types";
+import { ProctorEventType } from "./faceProctor";
 
 const BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -29,6 +30,7 @@ export interface Scorecard {
   overall: number;
   recommendation: string;
   panelist_comments: Record<string, string>;
+  integrity?: { tilt_events: number; away_events: number };
 }
 
 export async function getRoles(): Promise<RoleInfo[]> {
@@ -67,6 +69,14 @@ export async function endSession(sessionId: string): Promise<Scorecard> {
   const res = await fetch(`${BASE}/session/${sessionId}/end`, { method: "POST" });
   if (!res.ok) throw new Error(`end session failed: ${res.status}`);
   return res.json();
+}
+
+export async function reportProctorEvent(sessionId: string, type: ProctorEventType): Promise<void> {
+  await fetch(`${BASE}/session/${sessionId}/proctor-event`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type }),
+  });
 }
 
 export function wsUrl(sessionId: string): string {

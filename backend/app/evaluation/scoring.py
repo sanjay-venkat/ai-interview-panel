@@ -32,10 +32,16 @@ def _build_user_message(state: ConversationState) -> str:
     ) or "none"
     claims = "\n".join(f"- {c}" for c in state.claims) or "none"
     resume = state.resume_text[:2000] if state.resume_text else "not provided"
+    proctor_note = (
+        f"Webcam proctoring during the session recorded {state.proctor_tilt_count} sustained head-tilt "
+        f"event(s) and {state.proctor_away_count} away-from-camera event(s). This is a rough automated "
+        f"signal (lighting/webcam quality can cause false positives) — only mention it if the count is "
+        f"notably high; do not treat a low count as noteworthy."
+    )
     return (
         f"Candidate: {state.candidate_name}, Role: {state.role}\n\n"
         f"RESUME:\n{resume}\n\n"
-        f"TOPICS:\n{topics}\n\nCLAIMS MADE:\n{claims}\n\nFULL TRANSCRIPT:\n{transcript}"
+        f"TOPICS:\n{topics}\n\nCLAIMS MADE:\n{claims}\n\nFULL TRANSCRIPT:\n{transcript}\n\n{proctor_note}"
     )
 
 

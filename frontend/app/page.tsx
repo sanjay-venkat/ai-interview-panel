@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import AgentCard from "@/components/AgentCard";
 import ScoreBar from "@/components/ScoreBar";
+import CameraMonitor from "@/components/CameraMonitor";
 import {
   endSession,
   getRoles,
   parseResume,
+  reportProctorEvent,
   RoleInfo,
   Scorecard,
   startSession,
@@ -14,6 +16,7 @@ import {
   wsUrl,
 } from "@/lib/api";
 import { InterviewRoom } from "@/lib/agoraClient";
+import { ProctorEventType } from "@/lib/faceProctor";
 import { Snapshot } from "@/lib/types";
 
 type Stage = "setup" | "connecting" | "active" | "ending" | "complete";
@@ -41,11 +44,17 @@ export default function Page() {
   const [muted, setMuted] = useState(false);
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [camStream, setCamStream] = useState<MediaStream | null>(null);
 
   const roomRef = useRef<InterviewRoom | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const startTsRef = useRef<number>(0);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+
+  function stopCamera() {
+    camStream?.getTracks().forEach((t) => t.stop());
+    setCamStream(null);
+  }
 
   useEffect(() => {
     getRoles()
@@ -75,8 +84,19 @@ export default function Page() {
     if (snapshot.scorecard) setScorecard(snapshot.scorecard as unknown as Scorecard);
     roomRef.current?.leave();
     wsRef.current?.close();
+    stopCamera();
     setStage("complete");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot?.phase, snapshot?.scorecard, stage]);
+
+  async function handleProctorEvent(type: ProctorEventType) {
+    if (!session) return;
+    try {
+      await reportProctorEvent(session.session_id, type);
+    } catch {
+      // Best-effort — a dropped proctoring ping shouldn't interrupt the interview.
+    }
+  }
 
   async function handleResumeFile(file: File | undefined) {
     if (!file) return;
@@ -98,6 +118,14 @@ export default function Page() {
     setError(null);
     setStage("connecting");
     try {
+      let cam: MediaStream;
+      try {
+        cam = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
+      } catch {
+        throw new Error("Camera access is required — integrity monitoring watches for the candidate looking away or tilting out of frame. Please allow camera access and try again.");
+      }
+      setCamStream(cam);
+
       const s = await startSession(candidateName || "Candidate", roleKey, resumeText);
       setSession(s);
 
@@ -114,6 +142,7 @@ export default function Page() {
       setStage("active");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start interview");
+      stopCamera();
       setStage("setup");
     }
   }
@@ -129,6 +158,7 @@ export default function Page() {
     } finally {
       await roomRef.current?.leave();
       wsRef.current?.close();
+      stopCamera();
       setStage("complete");
     }
   }
@@ -144,7 +174,11 @@ export default function Page() {
     return (
       <div className="setup-card">
         <h1>AI Interview Panel</h1>
-        <p>Interviewers adapt to the role you pick. Grant mic access when prompted.</p>
+        <p>
+          Interviewers adapt to the role you pick. Grant mic and camera access when prompted — the camera is
+          analyzed locally in your browser for integrity monitoring (looking away, tilting out of frame); no
+          video ever leaves your device.
+        </p>
         <div className="field">
           <label>Your name</label>
           <input value={candidateName} onChange={(e) => setCandidateName(e.target.value)} placeholder="Jane Doe" />
@@ -199,6 +233,16 @@ export default function Page() {
               <b>{title}:</b> {comment}
             </p>
           ))}
+          {scorecard.integrity && (
+            <div className="integrity-summary">
+              <span className="col-label" style={{ display: "inline", textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 12, color: "var(--muted)" }}>
+                Proctoring
+              </span>
+              <p style={{ margin: "6px 0 0", fontSize: 13.5 }}>
+                {scorecard.integrity.tilt_events} head-tilt event(s) &middot; {scorecard.integrity.away_events} away-from-camera event(s) detected during the session.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -245,6 +289,13 @@ export default function Page() {
           </button>
         </div>
       </div>
+
+      <CameraMonitor
+        stream={camStream}
+        onEvent={handleProctorEvent}
+        tiltCount={snapshot?.proctor_tilt_count ?? 0}
+        awayCount={snapshot?.proctor_away_count ?? 0}
+      />
 
       <div className="agent-row">
         {panel.map((p) => (
