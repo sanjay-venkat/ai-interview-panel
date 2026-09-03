@@ -19,7 +19,13 @@ EPOCH_WINDOW_SECONDS = 3.5
 # incomplete sentences (the "I didn't catch that" / crossed-wires behavior).
 # We instead merge same-utterance fragments into the existing transcript
 # line and let no agent claim the floor until the candidate is done.
-CONTINUATION_WINDOW_SECONDS = 6.0
+#
+# 1.5s is deliberately short: it's meant to read as "they stopped talking,
+# that's their answer" (a normal end-of-sentence pause), not "they're still
+# mid-thought" — the separate MIN_THINKING_SECONDS grace period below is
+# what actually protects the candidate from being cut off early; this
+# window's job is just to decide when a pause means "done," not "wait."
+CONTINUATION_WINDOW_SECONDS = 1.5
 
 # Separately, Agora's VAD can end-point a turn on the candidate's very first
 # few words (a false start, "um, so...", a breath) — technically a complete
@@ -30,7 +36,9 @@ CONTINUATION_WINDOW_SECONDS = 6.0
 # a minimum thinking window regardless of what Agora sends us in the
 # meantime — the candidate's speech still gets transcribed as normal, we
 # just won't let anyone respond to it until they've had a moment to think.
-MIN_THINKING_SECONDS = 7.0
+# Once this window passes with still no real answer, the panel is free to
+# act on whatever's there (including proceeding on silence).
+MIN_THINKING_SECONDS = 5.0
 
 
 def _looks_like_continuation(prev_text: str, new_text: str) -> bool:
