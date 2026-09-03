@@ -17,6 +17,7 @@ export interface StartSessionResponse {
   role_title: string;
   panel: (PanelMember & { uid: number })[];
   mock_mode: boolean;
+  max_duration_seconds: number;
 }
 
 export interface Scorecard {

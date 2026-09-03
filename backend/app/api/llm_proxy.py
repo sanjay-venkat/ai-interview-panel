@@ -10,6 +10,7 @@ from app.agents.prompts import build_first_turn_intro, build_system_prompt
 from app.llm.groq_client import stream_chat
 from app.memory.conversation_state import TranscriptLine, broadcast, session_store
 from app.orchestration.floor_controller import resolve_decision
+from app.orchestration.session_manager import maybe_conclude_early
 
 router = APIRouter()
 
@@ -75,6 +76,7 @@ async def _speak_stream(agent_id: str, session_id: str, candidate_text: str, com
     state.transcript.append(TranscriptLine(speaker=agent_id, text=full_text.strip()))
     state.current_speaker = "candidate"
     broadcast(state)
+    await maybe_conclude_early(state)
 
 
 @router.post("/llm/{agent_id}/{session_id}/chat/completions")

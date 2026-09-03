@@ -66,6 +66,18 @@ export default function Page() {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [snapshot?.transcript?.length]);
 
+  // The backend can end the interview on its own — either the 45-minute
+  // cap or the panel deciding it has covered enough ground — without the
+  // candidate ever clicking "End Interview". Watch for that over the
+  // WebSocket and follow the same wind-down the button triggers.
+  useEffect(() => {
+    if (snapshot?.phase !== "complete" || stage === "complete" || stage === "ending") return;
+    if (snapshot.scorecard) setScorecard(snapshot.scorecard as unknown as Scorecard);
+    roomRef.current?.leave();
+    wsRef.current?.close();
+    setStage("complete");
+  }, [snapshot?.phase, snapshot?.scorecard, stage]);
+
   async function handleResumeFile(file: File | undefined) {
     if (!file) return;
     setError(null);
@@ -195,10 +207,17 @@ export default function Page() {
   const speaker = snapshot?.current_speaker ?? "candidate";
   const topics = snapshot?.topics ?? {};
   const panel = snapshot?.panel ?? session?.panel ?? [];
+  const maxDuration = session?.max_duration_seconds ?? 45 * 60;
+  const remaining = Math.max(0, maxDuration - elapsed);
+  const wrappingUp = snapshot?.phase === "deliberating";
 
   function speakerLabel(id: string): string {
     if (id === "candidate") return "You";
     return panel.find((p) => p.id === id)?.title ?? id;
+  }
+
+  function fmt(totalSeconds: number): string {
+    return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
   }
 
   return (
@@ -210,16 +229,19 @@ export default function Page() {
             {session?.mock_mode && <span className="mock-badge">MOCK MODE</span>}
           </h1>
           <div className="sub">
-            {candidateName || "Candidate"} · {snapshot?.role_title ?? session?.role_title} ·{" "}
-            {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
+            {candidateName || "Candidate"} · {snapshot?.role_title ?? session?.role_title} · {fmt(elapsed)} elapsed ·{" "}
+            <span style={{ color: remaining < 300 ? "#e0365a" : undefined, fontWeight: remaining < 300 ? 700 : undefined }}>
+              {fmt(remaining)} left
+            </span>
+            {wrappingUp && <span className="mock-badge" style={{ background: "linear-gradient(90deg,#6d5ef8,#8b7bff)", color: "#fff" }}>WRAPPING UP</span>}
           </div>
         </div>
         <div className="controls-row" style={{ marginTop: 0 }}>
-          <button className="btn-secondary" onClick={toggleMute}>
+          <button className="btn-secondary" onClick={toggleMute} disabled={wrappingUp}>
             {muted ? "Unmute" : "Mute"}
           </button>
-          <button className="btn-danger" onClick={handleEnd} disabled={stage === "ending"}>
-            {stage === "ending" ? "Ending…" : "End Interview"}
+          <button className="btn-danger" onClick={handleEnd} disabled={stage === "ending" || wrappingUp}>
+            {wrappingUp ? "Panel wrapping up…" : stage === "ending" ? "Ending…" : "End Interview"}
           </button>
         </div>
       </div>

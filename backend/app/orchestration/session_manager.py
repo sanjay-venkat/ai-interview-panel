@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from app.agents.prompts import build_greeting, build_static_prompt, build_system_prompt
@@ -7,12 +8,37 @@ from app.agora.rtc_token import build_rtc_token
 from app.agora.tts_vendors import validate_tts_config
 from app.config import settings
 from app.evaluation.scoring import deliberate
-from app.memory.conversation_state import ConversationState, PanelistRuntime, Phase, session_store
+from app.memory.conversation_state import ConversationState, PanelistRuntime, Phase, broadcast, session_store
 
 MAX_PANEL_SIZE = len(PANEL_UIDS)
 
+# Hard cap: the interview auto-evaluates and ends at 45 minutes regardless
+# of anything else, win the candidate is fast or slow.
+MAX_INTERVIEW_SECONDS = 45 * 60
+
+# Early-finish heuristic: if every panelist has already had a real second
+# turn (nobody's domain went unexplored) AND the candidate has substantively
+# covered enough distinct topics (repeated, confident keyword hits rather
+# than one passing mention), the panel is "satisfied" and wraps up early
+# instead of running the full 45 minutes. This directly rewards a candidate
+# who answers efficiently — the fewer turns it takes to reach this bar, the
+# sooner the interview ends. It's a heuristic proxy, not a semantic judgment
+# of answer quality; the 45-minute watchdog is the real backstop either way.
+MIN_TURNS_PER_PANELIST_FOR_EARLY_END = 2
+MIN_STRONG_TOPICS_FOR_EARLY_END = 5
+STRONG_TOPIC_CONFIDENCE = 0.75
+
+# Short pause before actually disconnecting agents on an early/satisfied
+# end, so the last thing spoken has a moment to finish playing out over
+# Agora's TTS before we tear the channel down. Manual "End Interview" and
+# the 45-minute cutoff skip this — those are explicit/hard stops.
+EARLY_END_GRACE_SECONDS = 4.0
+
 # session_id -> {agent_id: agora_agent_id}
 _active_agents: dict[str, dict[str, str]] = {}
+# session_id -> the 45-minute watchdog task, so it can be cancelled once a
+# session ends any other way.
+_watchdog_tasks: dict[str, asyncio.Task] = {}
 
 
 def _build_panel(role_config) -> list[PanelistRuntime]:
@@ -52,6 +78,7 @@ async def start_session(candidate_name: str, role_key: str, resume_text: str) ->
         agora_agent_id = await join_agent(i, panelist.id, state.session_id, channel, system_prompt, panelist.greeting)
         agent_ids[panelist.id] = agora_agent_id
     _active_agents[state.session_id] = agent_ids
+    _watchdog_tasks[state.session_id] = asyncio.create_task(_time_limit_watchdog(state.session_id))
 
     return {
         "session_id": state.session_id,
@@ -62,21 +89,74 @@ async def start_session(candidate_name: str, role_key: str, resume_text: str) ->
         "role_title": role_config.role_title,
         "panel": [{"id": p.id, "title": p.title, "uid": PANEL_UIDS[i]} for i, p in enumerate(panel)],
         "mock_mode": settings.effective_mock_mode,
+        "max_duration_seconds": MAX_INTERVIEW_SECONDS,
     }
 
 
-async def end_session(session_id: str) -> dict:
-    state = session_store.get(session_id)
-    if state is None:
-        raise ValueError("unknown session")
+async def _conclude(state: ConversationState, grace_seconds: float = 0.0) -> dict:
+    """The single funnel that actually ends a session: leaves all agents and
+    runs deliberation. Safe to call more than once / concurrently — the
+    lock-guarded phase check means only the first caller (manual end, the
+    45-minute watchdog, or the early-satisfaction check) does anything."""
+    async with state.lock:
+        if state.phase != Phase.ACTIVE:
+            return state.scorecard or {}
+        state.phase = Phase.DELIBERATING
+    broadcast(state)
 
-    state.phase = Phase.DELIBERATING
-    for agora_agent_id in _active_agents.pop(session_id, {}).values():
+    if grace_seconds > 0:
+        await asyncio.sleep(grace_seconds)
+
+    for agora_agent_id in _active_agents.pop(state.session_id, {}).values():
         await leave_agent(agora_agent_id)
 
     scorecard = await deliberate(state)
     state.phase = Phase.COMPLETE
+    broadcast(state)
+
+    task = _watchdog_tasks.pop(state.session_id, None)
+    if task and not task.done():
+        task.cancel()
     return scorecard
+
+
+async def end_session(session_id: str) -> dict:
+    """Candidate-initiated end (the "End Interview" button) — immediate,
+    no grace pause."""
+    state = session_store.get(session_id)
+    if state is None:
+        raise ValueError("unknown session")
+    return await _conclude(state)
+
+
+async def _time_limit_watchdog(session_id: str):
+    try:
+        await asyncio.sleep(MAX_INTERVIEW_SECONDS)
+    except asyncio.CancelledError:
+        return
+    state = session_store.get(session_id)
+    if state is not None:
+        await _conclude(state)
+
+
+def _panel_satisfied(state: ConversationState) -> bool:
+    if not state.panel:
+        return False
+    if state.turn_count < len(state.panel) * MIN_TURNS_PER_PANELIST_FOR_EARLY_END:
+        return False
+    if any(state.agent_last_spoke_turn.get(p.id, 0) == 0 for p in state.panel):
+        return False
+    strong_topics = sum(1 for t in state.topics.values() if t.confidence >= STRONG_TOPIC_CONFIDENCE)
+    return strong_topics >= MIN_STRONG_TOPICS_FOR_EARLY_END
+
+
+async def maybe_conclude_early(state: ConversationState):
+    """Called after every panelist turn finishes. If the panel has covered
+    enough ground already, let the interview wrap up early instead of
+    always running the full 45 minutes."""
+    if state.phase != Phase.ACTIVE or not _panel_satisfied(state):
+        return
+    asyncio.create_task(_conclude(state, grace_seconds=EARLY_END_GRACE_SECONDS))
 
 
 def get_state(session_id: str) -> ConversationState | None:
