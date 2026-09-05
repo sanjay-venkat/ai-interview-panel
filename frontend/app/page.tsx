@@ -29,6 +29,18 @@ const SCORECARD_METRICS = [
   "overall",
 ] as const;
 
+// Agora reports real audio energy per uid on a 0-100 scale; background
+// noise/silence usually sits under this. Below the threshold, nobody's
+// actually making sound.
+const VOLUME_THRESHOLD = 5;
+// Once an agent's audio crosses the threshold, keep them marked "speaking"
+// for this long after the last time they did. Agora's volume-indicator
+// event only fires roughly every 2 seconds (fixed by the SDK, not
+// configurable), so this has to be comfortably longer than that or the
+// indicator would flicker off between reports even while the agent is
+// still actively talking.
+const SPEAKING_HOLD_MS = 2600;
+
 export default function Page() {
   const [stage, setStage] = useState<Stage>("setup");
   const [candidateName, setCandidateName] = useState("");
@@ -44,11 +56,18 @@ export default function Page() {
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [camStream, setCamStream] = useState<MediaStream | null>(null);
+  // Which panelist's audio is actually audible right now, driven by real
+  // RTC volume data rather than by when the LLM finished generating text
+  // (Agora's TTS keeps playing that response's audio well after the text
+  // stream itself has ended, so text-generation timing alone badly
+  // undercounts how long an agent is genuinely speaking).
+  const [audioActiveAgentId, setAudioActiveAgentId] = useState<string | null>(null);
 
   const roomRef = useRef<InterviewRoom | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const startTsRef = useRef<number>(0);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const lastLoudAtRef = useRef<Record<string, number>>({});
 
   function stopCamera() {
     camStream?.getTracks().forEach((t) => t.stop());
@@ -128,8 +147,32 @@ export default function Page() {
       const s = await startSession(candidateName || "Candidate", roleKey, resumeText);
       setSession(s);
 
+      const uidToAgentId: Record<number, string> = {};
+      s.panel.forEach((p) => {
+        uidToAgentId[p.uid] = p.id;
+      });
+      lastLoudAtRef.current = {};
+
       const room = new InterviewRoom();
       roomRef.current = room;
+      room.onVolumeIndicator = (levels) => {
+        const now = Date.now();
+        for (const v of levels) {
+          const agentId = uidToAgentId[Number(v.uid)];
+          if (agentId && v.level > VOLUME_THRESHOLD) {
+            lastLoudAtRef.current[agentId] = now;
+          }
+        }
+        let activeId: string | null = null;
+        let mostRecent = 0;
+        for (const [id, ts] of Object.entries(lastLoudAtRef.current)) {
+          if (now - ts <= SPEAKING_HOLD_MS && ts > mostRecent) {
+            mostRecent = ts;
+            activeId = id;
+          }
+        }
+        setAudioActiveAgentId(activeId);
+      };
       await room.join(s.app_id, s.channel, s.candidate_token, s.candidate_uid);
 
       const ws = new WebSocket(wsUrl(s.session_id));
@@ -247,7 +290,12 @@ export default function Page() {
     );
   }
 
-  const speaker = snapshot?.current_speaker ?? "candidate";
+  // Prefer the real, audio-driven signal (see onVolumeIndicator above) —
+  // it's accurate for the agent's whole spoken audio, not just the brief
+  // window while the LLM was still streaming text. Fall back to the
+  // backend's own guess only when no one's audio has crossed the
+  // threshold recently (e.g. right at the very start of a response).
+  const speaker = audioActiveAgentId ?? snapshot?.current_speaker ?? "candidate";
   const topics = snapshot?.topics ?? {};
   const panel = snapshot?.panel ?? session?.panel ?? [];
   const maxDuration = session?.max_duration_seconds ?? 45 * 60;
@@ -289,12 +337,14 @@ export default function Page() {
         </div>
       </div>
 
-      <CameraMonitor
-        stream={camStream}
-        onEvent={handleProctorEvent}
-        tiltCount={snapshot?.proctor_tilt_count ?? 0}
-        awayCount={snapshot?.proctor_away_count ?? 0}
-      />
+      <div className="camera-monitor-row">
+        <CameraMonitor
+          stream={camStream}
+          onEvent={handleProctorEvent}
+          tiltCount={snapshot?.proctor_tilt_count ?? 0}
+          awayCount={snapshot?.proctor_away_count ?? 0}
+        />
+      </div>
 
       <div className="agent-row">
         {panel.map((p) => (

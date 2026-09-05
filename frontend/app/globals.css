@@ -552,11 +552,18 @@ button {
 }
 
 /* ---------- Camera / integrity monitor ---------- */
+/* Deliberately NOT position:fixed -- a floating overlay is what caused it
+   to sit on top of (and block) the End Interview button regardless of
+   window size. It's placed in normal document flow instead, inside a
+   right-aligned row (.camera-monitor-row) between the top bar and the
+   agent cards, so it can never overlap anything else on the page. */
+.camera-monitor-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+}
+
 .camera-monitor {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  z-index: 50;
   width: 168px;
   background: var(--panel);
   border: 2px solid var(--panel-border);
