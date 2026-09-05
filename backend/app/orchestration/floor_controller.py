@@ -9,23 +9,26 @@ RECENT_SPEAK_WINDOW_TURNS = 1
 EPOCH_WINDOW_SECONDS = 3.5
 
 # Agora's ConvoAI engine calls our /llm/* endpoint once per VAD-detected
-# turn boundary — but a candidate who pauses mid-thought (fillers, gathering
-# words) can trigger several of these boundaries for what is really one
-# continuous answer. Each such call arrives with Deepgram's running
-# transcript of that answer so far, so consecutive calls show up as one
-# candidate_text being a growing extension of the last. Without handling
-# this, every fragment became its own duplicate, ever-growing transcript
-# line AND its own floor decision — letting different agents jump in on
-# incomplete sentences (the "I didn't catch that" / crossed-wires behavior).
-# We instead merge same-utterance fragments into the existing transcript
-# line and let no agent claim the floor until the candidate is done.
+# turn boundary — but a candidate who pauses mid-thought (recalling a
+# number, choosing a word) can trigger several of these boundaries for what
+# is really one continuous answer. Each such call arrives with Deepgram's
+# running transcript of that answer so far, so consecutive calls show up as
+# one candidate_text being a growing extension of the last. Without
+# handling this, every fragment became its own duplicate, ever-growing
+# transcript line AND its own floor decision — letting different agents
+# jump in on incomplete sentences (the "I didn't catch that" / crossed-wires
+# behavior).
 #
-# 1.5s is deliberately short: it's meant to read as "they stopped talking,
-# that's their answer" (a normal end-of-sentence pause), not "they're still
-# mid-thought" — the separate MIN_THINKING_SECONDS grace period below is
-# what actually protects the candidate from being cut off early; this
-# window's job is just to decide when a pause means "done," not "wait."
-CONTINUATION_WINDOW_SECONDS = 1.5
+# This used to be 1.5s, which reads fine on paper ("a normal end-of-sentence
+# pause") but is shorter than most candidates' actual mid-thought pause on a
+# substantive question — in practice that caused exactly the bug this logic
+# exists to prevent: a pause just past 1.5s got read as "they're done,"
+# duplicating the same answer onto a second transcript line, and — once
+# past the unrelated 5s post-question grace below — sometimes let a
+# panelist jump in before the candidate had actually finished speaking.
+# Widened to 5.0s to match MIN_THINKING_SECONDS: "are they still speaking"
+# and "give them a moment before responding" now share one silence budget.
+CONTINUATION_WINDOW_SECONDS = 5.0
 
 # Separately, Agora's VAD can end-point a turn on the candidate's very first
 # few words (a false start, "um, so...", a breath) — technically a complete

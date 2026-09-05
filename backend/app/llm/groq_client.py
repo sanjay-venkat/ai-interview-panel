@@ -15,10 +15,15 @@ MOCK_RESPONSES = [
 _mock_idx = 0
 
 
-async def stream_chat(system_prompt: str, user_message: str, max_tokens: int = 220) -> AsyncIterator[str]:
-    """Yields text deltas. Falls back to a deterministic canned response when
-    MOCK_MODE is on or no GROQ_API_KEY is set, so the rest of the pipeline
-    (floor control, state, WS updates) stays testable/demoable offline."""
+async def stream_chat(system_prompt: str, messages: list[dict], max_tokens: int = 220) -> AsyncIterator[str]:
+    """Yields text deltas. `messages` is the real chronological transcript
+    (candidate + every panelist's turns, correctly attributed — see
+    prompts.build_message_history) rather than just the latest isolated
+    candidate line, so each agent's call reflects the actual conversation
+    instead of one utterance in a vacuum. Falls back to a deterministic
+    canned response when MOCK_MODE is on or no GROQ_API_KEY is set, so the
+    rest of the pipeline (floor control, state, WS updates) stays
+    testable/demoable offline."""
     if settings.effective_mock_mode:
         global _mock_idx
         text = MOCK_RESPONSES[_mock_idx % len(MOCK_RESPONSES)]
@@ -29,10 +34,7 @@ async def stream_chat(system_prompt: str, user_message: str, max_tokens: int = 2
 
     payload = {
         "model": settings.GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
+        "messages": [{"role": "system", "content": system_prompt}, *messages],
         "max_tokens": max_tokens,
         "temperature": 0.6,
         "stream": True,

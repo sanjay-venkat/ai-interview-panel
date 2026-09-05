@@ -104,3 +104,37 @@ def _state_summary(state: ConversationState) -> str:
 def build_system_prompt(agent_id: str, state: ConversationState) -> str:
     panelist = state.panelist(agent_id)
     return panelist.system_prompt_base + "\n" + _resume_block(state) + "\n" + _state_summary(state)
+
+
+# Kept equal to the Agora join payload's llm.max_history (convoai_client.py)
+# purely for consistency — the two aren't the same list (see below).
+MAX_HISTORY_TURNS = 20
+
+
+def build_message_history(state: ConversationState, agent_id: str) -> list[dict]:
+    """The actual chronological back-and-forth — candidate turns plus every
+    panelist's turns, correctly attributed — used as this call's Groq
+    conversation instead of just the latest isolated candidate utterance.
+
+    Agora's ConvoAI engine also keeps a per-agent history (max_history in
+    the join payload), but that history is siloed: each ConvoAI agent only
+    ever sees its OWN prior turns plus the candidate's, never another
+    panelist's. That's why, without this, the Technical Lead had no way to
+    know what the Hiring Manager or Culture & Values Partner had just asked
+    — build_system_prompt's topic/claims summary gives it keyword-level
+    awareness, but not the actual question or answer text. We replay OUR
+    shared, cross-agent transcript instead, tagging every other panelist's
+    line with their title (e.g. "(Hiring Manager) ...") so it reads as a
+    quote from a colleague rather than an anonymous prior turn of its own.
+    """
+    lines = state.transcript[-MAX_HISTORY_TURNS:]
+    messages: list[dict] = []
+    for line in lines:
+        if line.speaker == "candidate":
+            messages.append({"role": "user", "content": line.text})
+            continue
+        panelist = state.panelist(line.speaker)
+        title = panelist.title if panelist else line.speaker
+        prefix = "" if line.speaker == agent_id else f"({title}) "
+        messages.append({"role": "assistant", "content": prefix + line.text})
+    return messages

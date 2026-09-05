@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.agents.prompts import build_first_turn_intro, build_system_prompt
+from app.agents.prompts import build_first_turn_intro, build_message_history, build_system_prompt
 from app.llm.groq_client import stream_chat
 from app.memory.conversation_state import TranscriptLine, broadcast, session_store
 from app.orchestration.floor_controller import resolve_decision
@@ -55,11 +55,20 @@ async def _speak_stream(agent_id: str, session_id: str, candidate_text: str, com
     if state.panel and agent_id != state.panel[0].id and not already_spoke:
         system_prompt += build_first_turn_intro(state.panelist(agent_id).title)
 
+    # The real cross-panel back-and-forth, not just this one isolated line —
+    # this is what lets e.g. the Technical Lead see the question the Hiring
+    # Manager just asked and how the candidate answered it. Falls back to
+    # the raw candidate_text on the off chance the floor controller's
+    # transcript merge hasn't landed yet.
+    history = build_message_history(state, agent_id)
+    if not history or history[-1]["role"] != "user":
+        history.append({"role": "user", "content": candidate_text})
+
     start = time.time()
     first_token_at = None
     full_text = ""
 
-    async for delta in stream_chat(system_prompt, candidate_text):
+    async for delta in stream_chat(system_prompt, history):
         if first_token_at is None:
             first_token_at = time.time()
             state.current_speaker = agent_id
