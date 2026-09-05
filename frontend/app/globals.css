@@ -12,10 +12,16 @@
 
   --agent-1: #6d5ef8;
   --agent-1-bg: #f1eeff;
+  --agent-1-glow: rgba(109, 94, 248, 0.65);
+  --agent-1-glow-soft: rgba(109, 94, 248, 0.28);
   --agent-2: #14b8a6;
   --agent-2-bg: #e8fbf8;
+  --agent-2-glow: rgba(20, 184, 166, 0.65);
+  --agent-2-glow-soft: rgba(20, 184, 166, 0.28);
   --agent-3: #fb7185;
   --agent-3-bg: #ffeef1;
+  --agent-3-glow: rgba(251, 113, 133, 0.65);
+  --agent-3-glow-soft: rgba(251, 113, 133, 0.28);
 
   --shadow-sm: 0 1px 2px rgba(35, 38, 58, 0.06), 0 1px 3px rgba(35, 38, 58, 0.05);
   --shadow-md: 0 4px 14px rgba(85, 74, 219, 0.08), 0 2px 6px rgba(35, 38, 58, 0.05);
@@ -43,9 +49,9 @@ button {
 }
 
 .container {
-  max-width: 1100px;
+  max-width: 1140px;
   margin: 0 auto;
-  padding: 24px 16px 64px;
+  padding: 32px 20px 64px;
 }
 
 .setup-card {
@@ -214,81 +220,123 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  padding-bottom: 20px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .top-bar h1 {
-  font-size: 20px;
+  font-size: 22px;
   margin: 0;
+  background: linear-gradient(90deg, var(--accent), var(--agent-3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  display: inline-block;
 }
 
 .top-bar .sub {
   color: var(--muted);
   font-size: 13px;
+  margin-top: 4px;
 }
 
 .agent-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  margin-bottom: 24px;
 }
 
 .agent-card {
   background: var(--panel);
   border: 1.5px solid var(--panel-border);
-  border-top: 4px solid var(--agent-1);
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 20px;
+  padding: 28px 20px;
   box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 
-.agent-row .agent-card:nth-child(1) {
-  border-top-color: var(--agent-1);
-}
-.agent-row .agent-card:nth-child(2) {
-  border-top-color: var(--agent-2);
-}
-.agent-row .agent-card:nth-child(3) {
-  border-top-color: var(--agent-3);
+.agent-card-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 800;
+  flex-shrink: 0;
+  transition: box-shadow 0.2s;
 }
 
-.agent-card.speaking {
-  transform: translateY(-2px);
-  animation: agent-glow 1.1s ease-in-out infinite;
+.agent-row .agent-card:nth-child(1) .agent-card-avatar {
+  background: var(--agent-1-bg);
+  color: var(--agent-1);
+}
+.agent-row .agent-card:nth-child(2) .agent-card-avatar {
+  background: var(--agent-2-bg);
+  color: var(--agent-2);
+}
+.agent-row .agent-card:nth-child(3) .agent-card-avatar {
+  background: var(--agent-3-bg);
+  color: var(--agent-3);
 }
 
 .agent-row .agent-card:nth-child(1).speaking {
-  --glow-color: var(--agent-1);
+  --glow: var(--agent-1-glow);
+  --glow-soft: var(--agent-1-glow-soft);
 }
 .agent-row .agent-card:nth-child(2).speaking {
-  --glow-color: var(--agent-2);
+  --glow: var(--agent-2-glow);
+  --glow-soft: var(--agent-2-glow-soft);
 }
 .agent-row .agent-card:nth-child(3).speaking {
-  --glow-color: var(--agent-3);
+  --glow: var(--agent-3-glow);
+  --glow-soft: var(--agent-3-glow-soft);
+}
+
+.agent-card.speaking {
+  transform: translateY(-4px) scale(1.02);
+  border-color: transparent;
+  animation: agent-glow 1.1s ease-in-out infinite;
+}
+
+.agent-card.speaking .agent-card-avatar {
+  animation: agent-avatar-glow 1.1s ease-in-out infinite;
 }
 
 @keyframes agent-glow {
   0%, 100% {
-    box-shadow: 0 0 0 1px var(--glow-color, var(--accent)), 0 0 14px 2px color-mix(in srgb, var(--glow-color, var(--accent)) 55%, transparent),
-      0 8px 24px -6px rgba(35, 38, 58, 0.25);
+    box-shadow: 0 0 0 2px var(--glow, var(--accent)), 0 0 18px 4px var(--glow-soft, rgba(109, 94, 248, 0.3)), var(--shadow-md);
   }
   50% {
-    box-shadow: 0 0 0 1px var(--glow-color, var(--accent)), 0 0 26px 8px color-mix(in srgb, var(--glow-color, var(--accent)) 70%, transparent),
-      0 8px 24px -6px rgba(35, 38, 58, 0.25);
+    box-shadow: 0 0 0 3px var(--glow, var(--accent)), 0 0 36px 10px var(--glow, rgba(109, 94, 248, 0.5)), var(--shadow-md);
+  }
+}
+
+@keyframes agent-avatar-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 4px var(--glow-soft, rgba(109, 94, 248, 0.3));
+  }
+  50% {
+    box-shadow: 0 0 0 8px var(--glow-soft, rgba(109, 94, 248, 0.15));
   }
 }
 
 .agent-card .name {
   font-weight: 700;
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .agent-card .role {
   color: var(--muted);
   font-size: 12px;
-  margin-bottom: 10px;
 }
 
 .status-dot {
@@ -303,11 +351,32 @@ button {
 .status-dot.on {
   background: var(--good);
   box-shadow: 0 0 8px var(--good);
+  animation: status-dot-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes status-dot-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(23, 178, 106, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(23, 178, 106, 0);
+  }
 }
 
 .status-text {
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--muted);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--bg-2);
+}
+
+.agent-card.speaking .status-text {
+  color: var(--good);
+  background: rgba(23, 178, 106, 0.12);
 }
 
 .panel {
