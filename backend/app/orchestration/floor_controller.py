@@ -30,6 +30,21 @@ EPOCH_WINDOW_SECONDS = 3.5
 # and "give them a moment before responding" now share one silence budget.
 CONTINUATION_WINDOW_SECONDS = 5.0
 
+# A second, unrelated reason the same candidate text can arrive twice: each
+# of the three panelists runs its own independent ASR pipeline, and under
+# real network/API latency one can simply be slower than the others (this
+# wasn't visible in the backend-only mock smoke test — only once real
+# multi-agent audio was in the loop). If a straggler's call for an
+# utterance we've ALREADY logged and responded to arrives after
+# resolve_decision's 3.5s epoch window has closed, it opens a brand-new
+# epoch and gets processed as if it were a fresh turn — duplicating the
+# line a second time and occasionally letting a panelist "win" the floor
+# for an answer that was already answered. This has nothing to do with the
+# candidate still speaking, so it isn't bound by the short window above —
+# it just needs a much more generous cap, since a straggler can lag many
+# seconds behind under real audio latency.
+MAX_DUPLICATE_TEXT_GAP_SECONDS = 25.0
+
 # Separately, Agora's VAD can end-point a turn on the candidate's very first
 # few words (a false start, "um, so...", a breath) — technically a complete
 # "turn" by Agora's definition, but not remotely a finished thought. Without
@@ -104,13 +119,21 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
     log the candidate's line — avoids double-logging from both agents'
     independent transcripts of the same utterance."""
     last = state.transcript[-1] if state.transcript else None
-    continuing = (
+    gap = (time.time() - last.ts) if last is not None else None
+    # same_utterance covers BOTH "still forming this answer" (short window)
+    # and "a straggling agent's late duplicate of an answer we already have"
+    # (long window) — see the two constants' comments above. Either way we
+    # merge into the existing line instead of duplicating it, and neither
+    # should win a fresh floor decision.
+    same_utterance = (
         last is not None
         and last.speaker == "candidate"
-        and (time.time() - last.ts) < CONTINUATION_WINDOW_SECONDS
+        and gap is not None
+        and gap < MAX_DUPLICATE_TEXT_GAP_SECONDS
         and _looks_like_continuation(last.text, candidate_text)
     )
-    if continuing:
+    still_forming = same_utterance and gap < CONTINUATION_WINDOW_SECONDS
+    if same_utterance:
         if len(candidate_text) >= len(last.text):
             last.text = candidate_text
         last.ts = time.time()
@@ -136,15 +159,15 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
     scores = {p.id: score_agent(state, p, signals) for p in state.panel}
 
     thinking_time_left = (
-        not continuing
+        not same_utterance
         and state.last_panelist_turn_ts > 0
         and (time.time() - state.last_panelist_turn_ts) < MIN_THINKING_SECONDS
     )
-    # Either kind of "not a real turn yet" skips floor selection the same
-    # way — the candidate is still forming their answer, whether that's
-    # because this call is a fragment of one utterance, or because they've
-    # barely had time to start since the last question.
-    hold_floor = continuing or thinking_time_left
+    # Every kind of "not a real turn yet" skips floor selection the same
+    # way — the candidate is still forming their answer, this call is a
+    # late duplicate of an answer already handled, or they've barely had
+    # time to start since the last question.
+    hold_floor = same_utterance or thinking_time_left
 
     if hold_floor:
         winner = None
@@ -163,8 +186,12 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
             # panelist has gone longest without a turn speaks next.
             winner = min(agent_order, key=lambda a: state.agent_last_spoke_turn.get(a, -1))
 
-    if continuing:
-        reason = "candidate still mid-answer (fragment merged into previous line)"
+    if same_utterance:
+        reason = (
+            "candidate still mid-answer (fragment merged into previous line)"
+            if still_forming
+            else "late duplicate of the last candidate line from a slower agent's ASR (merged, no new turn)"
+        )
     elif thinking_time_left:
         reason = "giving the candidate a moment to think before the panel responds"
     else:

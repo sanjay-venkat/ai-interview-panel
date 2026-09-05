@@ -101,9 +101,33 @@ def _state_summary(state: ConversationState) -> str:
     )
 
 
+# Every OTHER panelist's line in the conversation history passed to the
+# model is prefixed like "(Hiring Manager) ..." purely so this agent knows
+# who said it (see build_message_history below). Left unexplained, the
+# model tends to imitate that formatting in its OWN reply — e.g. the
+# Technical Lead literally saying "(Hiring Manager) ..." out loud — because
+# it looks, from the model's side, like a pattern other "assistant" turns
+# in the conversation are following. This note is what stops that.
+_HISTORY_ATTRIBUTION_NOTE = (
+    "Other panelists' turns in the conversation history are prefixed like "
+    '"(Hiring Manager) ..." purely so you know who said it — that prefix is '
+    "a label for your reference only, never something to say out loud. "
+    "Never begin your own reply with a name, title, or parenthetical label "
+    "of any kind; just speak your own next line directly.\n"
+)
+
+
 def build_system_prompt(agent_id: str, state: ConversationState) -> str:
     panelist = state.panelist(agent_id)
-    return panelist.system_prompt_base + "\n" + _resume_block(state) + "\n" + _state_summary(state)
+    return (
+        panelist.system_prompt_base
+        + "\n"
+        + _resume_block(state)
+        + "\n"
+        + _state_summary(state)
+        + "\n"
+        + _HISTORY_ATTRIBUTION_NOTE
+    )
 
 
 # Kept equal to the Agora join payload's llm.max_history (convoai_client.py)
