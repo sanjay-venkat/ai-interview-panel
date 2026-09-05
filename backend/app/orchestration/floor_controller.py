@@ -1,70 +1,113 @@
 import asyncio
 import time
+from typing import Optional
 
 from app.evaluation.extractor import Signals, extract_claims, extract_signals, keyword_hits
 from app.memory.conversation_state import ConversationState, FloorDecision, PanelistRuntime, TopicSignal, TranscriptLine
 
 RECENT_SPEAK_PENALTY = 0.6
 RECENT_SPEAK_WINDOW_TURNS = 1
-EPOCH_WINDOW_SECONDS = 3.5
 
 # Agora's ConvoAI engine calls our /llm/* endpoint once per VAD-detected
-# turn boundary — but a candidate who pauses mid-thought (recalling a
-# number, choosing a word) can trigger several of these boundaries for what
-# is really one continuous answer. Each such call arrives with Deepgram's
-# running transcript of that answer so far, so consecutive calls show up as
-# one candidate_text being a growing extension of the last. Without
-# handling this, every fragment became its own duplicate, ever-growing
-# transcript line AND its own floor decision — letting different agents
-# jump in on incomplete sentences (the "I didn't catch that" / crossed-wires
-# behavior).
+# turn boundary, and Agora's own VAD decides when a "turn" ends -- often on
+# a pause well short of the candidate actually being finished (in practice,
+# as short as ~1 second). Earlier versions of this file tried to detect
+# "is this still the same answer" by checking whether a new call's text was
+# a growing, textually-overlapping extension of the previous one -- but
+# that assumption doesn't hold up: once Agora's VAD ends a turn on a pause,
+# the NEXT call's text is often a completely fresh, disjoint fragment (the
+# candidate's next few words, not a superset of what came before), so a
+# text-prefix check can never recognize it as a continuation, no matter how
+# generous the time window is made.
 #
-# This used to be 1.5s, which reads fine on paper ("a normal end-of-sentence
-# pause") but is shorter than most candidates' actual mid-thought pause on a
-# substantive question — in practice that caused exactly the bug this logic
-# exists to prevent: a pause just past 1.5s got read as "they're done,"
-# duplicating the same answer onto a second transcript line, and — once
-# past the unrelated 5s post-question grace below — sometimes let a
-# panelist jump in before the candidate had actually finished speaking.
-# Widened to 5.0s to match MIN_THINKING_SECONDS: "are they still speaking"
-# and "give them a moment before responding" now share one silence budget.
-CONTINUATION_WINDOW_SECONDS = 5.0
+# The actual fix is to stop trying to decide the instant any single call
+# arrives. Every candidate utterance is buffered in state.pending_fragments;
+# each new call just extends that buffer and resets the silence clock. Only
+# once SILENCE_CONFIRM_SECONDS of genuine quiet has passed -- no candidate
+# speech from ANY of the three agents' independent ASR pipelines -- does
+# the panel actually commit to a floor decision, using every fragment
+# collected since the panel's last turn (see _reconstruct_pending_text).
+# This is the one signal that reliably distinguishes "they paused to
+# think" from "they're done," regardless of how Agora slices the
+# underlying speech into turns.
+SILENCE_CONFIRM_SECONDS = 3.0
 
-# A second, unrelated reason the same candidate text can arrive twice: each
-# of the three panelists runs its own independent ASR pipeline, and under
-# real network/API latency one can simply be slower than the others (this
-# wasn't visible in the backend-only mock smoke test — only once real
-# multi-agent audio was in the loop). If a straggler's call for an
-# utterance we've ALREADY logged and responded to arrives after
-# resolve_decision's 3.5s epoch window has closed, it opens a brand-new
-# epoch and gets processed as if it were a fresh turn — duplicating the
-# line a second time and occasionally letting a panelist "win" the floor
-# for an answer that was already answered. This has nothing to do with the
-# candidate still speaking, so it isn't bound by the short window above —
-# it just needs a much more generous cap, since a straggler can lag many
-# seconds behind under real audio latency.
-MAX_DUPLICATE_TEXT_GAP_SECONDS = 25.0
-
-# Separately, Agora's VAD can end-point a turn on the candidate's very first
-# few words (a false start, "um, so...", a breath) — technically a complete
-# "turn" by Agora's definition, but not remotely a finished thought. Without
-# a floor beneath it, whichever panelist scored highest would immediately
-# ask its next question, barely giving the candidate a chance to speak.
-# So after any panelist actually asks something, the floor stays closed for
-# a minimum thinking window regardless of what Agora sends us in the
-# meantime — the candidate's speech still gets transcribed as normal, we
-# just won't let anyone respond to it until they've had a moment to think.
-# Once this window passes with still no real answer, the panel is free to
-# act on whatever's there (including proceeding on silence).
+# Separately: after a panelist actually asks something, the panel shouldn't
+# jump back in the instant the candidate goes quiet for SILENCE_CONFIRM_
+# SECONDS if that's only a second or two into their answer (e.g. "let me
+# think..." followed by a real pause to gather their thoughts). So a floor
+# decision also can't finalize until at least this long has passed since
+# the panel's last turn, on top of the silence check above.
 MIN_THINKING_SECONDS = 5.0
 
+# Independently of all the above: each of the three panelists runs its own
+# ASR pipeline, and under real network/API latency one can simply be much
+# slower than the others (not visible in a backend-only mock smoke test --
+# only once real multi-agent audio was involved). If a straggler's call for
+# an utterance the panel has ALREADY responded to arrives well after the
+# fact, it must never be treated as a new answer -- it's just merged into
+# the historical line it belongs to. Bounded to a generous window since a
+# genuine straggler can lag many seconds behind.
+STALE_ANSWER_WINDOW_SECONDS = 25.0
 
-def _looks_like_continuation(prev_text: str, new_text: str) -> bool:
-    prev = prev_text.strip().lower()
-    new = new_text.strip().lower()
-    if not prev or not new:
+
+def _merge_fragment(prev: str, new: str) -> str:
+    """Combine two pieces of candidate text that may or may not textually
+    overlap. Agora/Deepgram sometimes deliver a growing transcript of one
+    utterance (new is a superset of prev) and sometimes split what is, to
+    the candidate, one continuous answer into disjoint fragments across a
+    VAD-detected pause (new shares no text with prev at all) -- this
+    handles both by concatenating whenever there's no overlap, instead of
+    silently dropping one side of the answer."""
+    prev, new = prev.strip(), new.strip()
+    if not prev:
+        return new
+    if not new:
+        return prev
+    pl, nl = prev.lower(), new.lower()
+    if nl.startswith(pl):
+        return new
+    if pl.startswith(nl):
+        return prev
+    return f"{prev} {new}"
+
+
+def _texts_overlap(a: str, b: str) -> bool:
+    al, bl = a.strip().lower(), b.strip().lower()
+    if not al or not bl:
         return False
-    return new.startswith(prev) or prev.startswith(new)
+    return al.startswith(bl) or bl.startswith(al)
+
+
+def _reconstruct_pending_text(fragments: list[tuple[str, str, float]]) -> str:
+    """`fragments` is every (agent_id, candidate_text, ts) call received
+    since the panel's last turn. Each agent transcribes the same candidate
+    audio independently, so we rebuild each agent's own running view by
+    merging its successive fragments in order, then take the longest
+    reconstruction as the best single source of truth (more words
+    generally means a fuller capture of what was actually said)."""
+    per_agent: dict[str, str] = {}
+    for agent_id, text, _ts in fragments:
+        per_agent[agent_id] = _merge_fragment(per_agent.get(agent_id, ""), text)
+    return max(per_agent.values(), key=len, default="")
+
+
+def _find_stale_match(state: ConversationState, candidate_text: str, now: float) -> Optional[TranscriptLine]:
+    """Is this call actually a late straggler for an utterance the panel
+    has already responded to, rather than a fresh new answer? True only if
+    the most recent candidate transcript line already has a panelist reply
+    after it AND this call's text overlaps that line's."""
+    for i in range(len(state.transcript) - 1, -1, -1):
+        line = state.transcript[i]
+        if line.speaker != "candidate":
+            continue
+        if now - line.ts > STALE_ANSWER_WINDOW_SECONDS:
+            return None
+        has_reply_after = any(t.speaker != "candidate" for t in state.transcript[i + 1 :])
+        if has_reply_after and _texts_overlap(line.text, candidate_text):
+            return line
+        return None  # most recent candidate line has no reply yet -- it's the current pending answer, not stale
+    return None
 
 
 def _relevance(panelist: PanelistRuntime, signals: Signals) -> float:
@@ -112,35 +155,18 @@ def score_agent(state: ConversationState, panelist: PanelistRuntime, signals: Si
     }
 
 
-def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision:
-    """Deterministic arbitration. No LLM call in this hot path — keeps the
-    'who speaks next' decision fast (<20ms) and independent of API latency.
-    Runs exactly once per turn epoch, so this is also the single place we
-    log the candidate's line — avoids double-logging from both agents'
-    independent transcripts of the same utterance."""
-    last = state.transcript[-1] if state.transcript else None
-    gap = (time.time() - last.ts) if last is not None else None
-    # same_utterance covers BOTH "still forming this answer" (short window)
-    # and "a straggling agent's late duplicate of an answer we already have"
-    # (long window) — see the two constants' comments above. Either way we
-    # merge into the existing line instead of duplicating it, and neither
-    # should win a fresh floor decision.
-    same_utterance = (
-        last is not None
-        and last.speaker == "candidate"
-        and gap is not None
-        and gap < MAX_DUPLICATE_TEXT_GAP_SECONDS
-        and _looks_like_continuation(last.text, candidate_text)
-    )
-    still_forming = same_utterance and gap < CONTINUATION_WINDOW_SECONDS
-    if same_utterance:
-        if len(candidate_text) >= len(last.text):
-            last.text = candidate_text
-        last.ts = time.time()
-    else:
-        state.transcript.append(TranscriptLine(speaker="candidate", text=candidate_text))
+def _finalize_turn(state: ConversationState) -> FloorDecision:
+    """Called once real silence has been confirmed since the candidate's
+    last speech activity. Reconstructs the full answer from every fragment
+    received since the panel's last turn, logs it as one transcript line,
+    and scores which panelist should respond next. No LLM call in this hot
+    path — keeps the 'who speaks next' decision fast and independent of
+    API latency."""
+    text = _reconstruct_pending_text(state.pending_fragments)
+    state.pending_fragments = []
+    state.transcript.append(TranscriptLine(speaker="candidate", text=text))
 
-    signals = extract_signals(candidate_text)
+    signals = extract_signals(text)
 
     all_keywords: set[str] = set()
     for p in state.panel:
@@ -151,27 +177,14 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
             t.mentions += 1
             t.confidence = min(1.0, t.confidence + 0.15)
 
-    for claim in extract_claims(candidate_text):
+    for claim in extract_claims(text):
         if claim not in state.claims:
             state.claims.append(claim)
 
     agent_order = state.panel_ids()
     scores = {p.id: score_agent(state, p, signals) for p in state.panel}
 
-    thinking_time_left = (
-        not same_utterance
-        and state.last_panelist_turn_ts > 0
-        and (time.time() - state.last_panelist_turn_ts) < MIN_THINKING_SECONDS
-    )
-    # Every kind of "not a real turn yet" skips floor selection the same
-    # way — the candidate is still forming their answer, this call is a
-    # late duplicate of an answer already handled, or they've barely had
-    # time to start since the last question.
-    hold_floor = same_utterance or thinking_time_left
-
-    if hold_floor:
-        winner = None
-    elif state.turn_count < len(agent_order):
+    if state.turn_count < len(agent_order):
         # First len(panel) turns are forced, one per panelist in order, so
         # every interviewer is guaranteed to speak early in the demo rather
         # than leaving it to chance if the candidate's opening answer happens
@@ -186,84 +199,75 @@ def decide_floor(state: ConversationState, candidate_text: str) -> FloorDecision
             # panelist has gone longest without a turn speaks next.
             winner = min(agent_order, key=lambda a: state.agent_last_spoke_turn.get(a, -1))
 
-    if same_utterance:
-        reason = (
-            "candidate still mid-answer (fragment merged into previous line)"
-            if still_forming
-            else "late duplicate of the last candidate line from a slower agent's ASR (merged, no new turn)"
-        )
-    elif thinking_time_left:
-        reason = "giving the candidate a moment to think before the panel responds"
+    weakness = scores[winner]["weakness"] if winner else 0
+    if weakness > 0.4:
+        reason = f"{winner} detected a weak/hedged claim"
+    elif winner:
+        reason = f"{winner} has topical relevance"
     else:
-        weakness = scores[winner]["weakness"] if winner else 0
-        if weakness > 0.4:
-            reason = f"{winner} detected a weak/hedged claim"
-        elif winner:
-            reason = f"{winner} has topical relevance"
-        else:
-            reason = "no agent met the speaking threshold"
+        reason = "no agent met the speaking threshold"
 
-    return FloorDecision(winner=winner, scores=scores, reason=reason, continuation=hold_floor)
+    return FloorDecision(winner=winner, scores=scores, reason=reason, continuation=False)
+
+
+async def _debounce_and_finalize(state: ConversationState, fut: asyncio.Future):
+    """Background task, one per pending answer: waits for real silence
+    (and the post-question thinking grace) before finalizing. Re-arms
+    itself whenever new candidate activity arrives during the wait, so a
+    candidate who keeps pausing and resuming is never cut off mid-answer."""
+    while True:
+        await asyncio.sleep(SILENCE_CONFIRM_SECONDS)
+        async with state.lock:
+            quiet_for = time.time() - state.last_candidate_activity_ts
+            since_question = (
+                time.time() - state.last_panelist_turn_ts if state.last_panelist_turn_ts > 0 else MIN_THINKING_SECONDS
+            )
+        if quiet_for < SILENCE_CONFIRM_SECONDS or since_question < MIN_THINKING_SECONDS:
+            continue
+        break
+
+    async with state.lock:
+        decision = _finalize_turn(state)
+        state.turn_count += 1
+        if decision.winner:
+            state.agent_last_spoke_turn[decision.winner] = state.turn_count
+            state.agent_last_spoke_ts[decision.winner] = time.time()
+        state.pending_decision_future = None
+        if not fut.done():
+            fut.set_result(decision)
 
 
 async def resolve_decision(state: ConversationState, agent_id: str, candidate_text: str) -> FloorDecision:
-    """Every interviewer agent calls this once it sees a new candidate
-    message in its own conversation history. Because each agent runs an
-    independent ASR pipeline, their transcripts of the same utterance won't
-    match exactly — so instead of deduping by text, whichever call arrives
-    first opens a short "epoch" and computes the decision; the others,
-    arriving within EPOCH_WINDOW_SECONDS, reuse it instead of computing their
-    own (possibly disagreeing) decision.
-
-    Note: `decide_floor` is fully synchronous and asyncio.Lock's fast path
-    doesn't yield when uncontended, so the first caller can run this whole
-    function to completion before the event loop ever switches to the
-    second caller. That means "is there a pending future to join" is NOT a
-    reliable signal by itself — the first call may have already finished and
-    cleared it. `current_epoch_consumed_by` is what actually makes this
-    correct: an agent reuses the cached decision as long as it personally
-    hasn't consumed it yet, regardless of whether the computation is still
-    in flight or already done.
-    """
+    """Every interviewer agent calls this once its own ASR sees a new
+    candidate message. Rather than deciding synchronously, this buffers the
+    fragment and lets a single background debounce task (shared across all
+    three agents' calls for the same pending answer) decide once real
+    silence is confirmed — see _debounce_and_finalize. A late straggler for
+    an utterance the panel has already answered is detected and merged in
+    directly, without ever starting a new decision cycle."""
+    now = time.time()
     async with state.lock:
-        now = time.time()
-        epoch_fresh = now - state.current_epoch_started_at < EPOCH_WINDOW_SECONDS
+        stale = _find_stale_match(state, candidate_text, now)
+        if stale is not None:
+            merged = _merge_fragment(stale.text, candidate_text)
+            if len(merged) > len(stale.text):
+                stale.text = merged
+                stale.ts = now
+            return FloorDecision(
+                winner=None,
+                scores={},
+                reason="late duplicate of an already-answered line (merged, no new turn)",
+                continuation=True,
+            )
 
-        if epoch_fresh and state.current_epoch_decision is not None and agent_id not in state.current_epoch_consumed_by:
-            state.current_epoch_consumed_by.add(agent_id)
-            return state.current_epoch_decision
+        state.last_candidate_activity_ts = now
+        state.pending_fragments.append((agent_id, candidate_text, now))
 
-        if epoch_fresh and state.current_epoch_future is not None and not state.current_epoch_future.done():
-            fut = state.current_epoch_future
-            compute_here = False
+        if state.pending_decision_future is not None and not state.pending_decision_future.done():
+            fut = state.pending_decision_future
         else:
             fut = asyncio.get_event_loop().create_future()
-            state.current_epoch_future = fut
-            state.current_epoch_started_at = now
-            state.current_epoch_decision = None
-            state.current_epoch_consumed_by = {agent_id}
-            compute_here = True
+            state.pending_decision_future = fut
+            asyncio.create_task(_debounce_and_finalize(state, fut))
 
-    if not compute_here:
-        decision = await fut
-        async with state.lock:
-            state.current_epoch_consumed_by.add(agent_id)
-        return decision
-
-    decision = decide_floor(state, candidate_text)
-
-    async with state.lock:
-        state.current_epoch_decision = decision
-        if not decision.continuation:
-            # A continuation isn't a real turn — don't advance turn_count or
-            # burn a forced-order slot on a mid-answer fragment.
-            state.turn_count += 1
-            if decision.winner:
-                state.agent_last_spoke_turn[decision.winner] = state.turn_count
-                state.agent_last_spoke_ts[decision.winner] = time.time()
-        fut2 = state.current_epoch_future
-        state.current_epoch_future = None
-        if fut2 and not fut2.done():
-            fut2.set_result(decision)
-
-    return decision
+    return await fut

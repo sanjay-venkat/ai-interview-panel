@@ -76,17 +76,16 @@ class ConversationState:
     # very first forced turn isn't gated by the thinking-time cooldown.
     last_panelist_turn_ts: float = 0.0
 
-    # Each interviewer agent runs its own independent ASR pipeline against the
-    # same candidate audio, so their transcripts of "the same" utterance won't
-    # match byte-for-byte. We dedupe by time window (an "epoch") instead of by
-    # exact text: whichever agent's proxy call arrives first opens the epoch
-    # and computes the decision; the other, arriving within EPOCH_WINDOW
-    # seconds, reuses it instead of computing its own (possibly disagreeing)
-    # decision. See floor_controller.resolve_decision.
-    current_epoch_future: Optional[asyncio.Future] = None
-    current_epoch_started_at: float = 0.0
-    current_epoch_decision: Optional[FloorDecision] = None
-    current_epoch_consumed_by: set = field(default_factory=set)
+    # Each interviewer agent runs its own independent ASR pipeline against
+    # the same candidate audio, and Agora's own VAD decides when a "turn"
+    # ends -- often on a pause well short of the candidate actually being
+    # done. Rather than deciding the instant any one agent's call arrives,
+    # every candidate utterance is buffered here and the panel only commits
+    # to a floor decision once real silence has been confirmed across all
+    # three agents' calls. See floor_controller.resolve_decision.
+    pending_fragments: list[tuple[str, str, float]] = field(default_factory=list)  # (agent_id, text, ts) since the panel's last turn
+    last_candidate_activity_ts: float = 0.0
+    pending_decision_future: Optional[asyncio.Future] = None
 
     latency_ms: dict[str, float] = field(default_factory=dict)
     scorecard: Optional[dict] = None
