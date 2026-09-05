@@ -6,7 +6,7 @@ from app.api.sessions import router as sessions_router
 from app.api.ws import router as ws_router
 from app.config import settings
 
-app = FastAPI(title="AI Interview Panel")
+app = FastAPI(title="Voice Verse Bot")
 
 app.add_middleware(
     CORSMiddleware,

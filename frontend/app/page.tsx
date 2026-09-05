@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import AgentCard from "@/components/AgentCard";
-import ScoreBar from "@/components/ScoreBar";
 import CameraMonitor from "@/components/CameraMonitor";
 import {
   endSession,
@@ -173,7 +172,7 @@ export default function Page() {
     const selectedRole = roles.find((r) => r.key === roleKey);
     return (
       <div className="setup-card">
-        <h1>AI Interview Panel</h1>
+        <h1>Voice Verse Bot</h1>
         <p>
           Interviewers adapt to the role you pick. Grant mic and camera access when prompted — the camera is
           analyzed locally in your browser for integrity monitoring (looking away, tilting out of frame); no
@@ -269,7 +268,7 @@ export default function Page() {
       <div className="top-bar">
         <div>
           <h1>
-            AI Interview Panel
+            Voice Verse Bot
             {session?.mock_mode && <span className="mock-badge">MOCK MODE</span>}
           </h1>
           <div className="sub">
@@ -299,12 +298,7 @@ export default function Page() {
 
       <div className="agent-row">
         {panel.map((p) => (
-          <AgentCard
-            key={p.id}
-            name={p.title}
-            speaking={speaker === p.id}
-            latencyMs={snapshot?.latency_ms?.[p.id]}
-          />
+          <AgentCard key={p.id} name={p.title} speaking={speaker === p.id} />
         ))}
       </div>
 
@@ -325,22 +319,17 @@ export default function Page() {
         <div className="panel">
           <h2>Topics Covered</h2>
           {Object.keys(topics).length === 0 && <p style={{ color: "var(--muted)", fontSize: 13 }}>Nothing detected yet.</p>}
-          {Object.entries(topics).map(([topic, sig]) => (
-            <ScoreBar key={topic} label={topic} value={sig.confidence} />
-          ))}
-        </div>
-      </div>
-
-      <div className="panel">
-        <h2>Latency HUD</h2>
-        <div className="latency-grid">
-          {panel.map((p) => (
-            <div key={p.id}>
-              {p.title} TTFA: <b>{Math.round(snapshot?.latency_ms?.[p.id] ?? 0)}ms</b>
-            </div>
-          ))}
-          <div>
-            Turn: <b>{snapshot?.turn_count ?? 0}</b>
+          <div className="topic-chip-row">
+            {Object.entries(topics).map(([topic, sig]) => {
+              const status = sig.confidence >= 0.75 ? "covered" : sig.confidence >= 0.45 ? "in-progress" : "mentioned";
+              const label = status === "covered" ? "Covered" : status === "in-progress" ? "In Progress" : "Mentioned";
+              return (
+                <span key={topic} className={`topic-chip ${status}`}>
+                  {topic}
+                  <span className="topic-chip-status">{label}</span>
+                </span>
+              );
+            })}
           </div>
         </div>
       </div>

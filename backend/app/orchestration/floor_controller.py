@@ -1,9 +1,13 @@
 import asyncio
+import logging
+import re
 import time
 from typing import Optional
 
 from app.evaluation.extractor import Signals, extract_claims, extract_signals, keyword_hits
 from app.memory.conversation_state import ConversationState, FloorDecision, PanelistRuntime, TopicSignal, TranscriptLine
+
+logger = logging.getLogger(__name__)
 
 RECENT_SPEAK_PENALTY = 0.6
 RECENT_SPEAK_WINDOW_TURNS = 1
@@ -40,6 +44,16 @@ SILENCE_CONFIRM_SECONDS = 3.0
 # the panel's last turn, on top of the silence check above.
 MIN_THINKING_SECONDS = 5.0
 
+# Hard ceiling on how long a single pending answer can be buffered before
+# the panel is FORCED to finalize, no matter what. Without this, any bug
+# (or any unexpected pattern of activity that keeps resetting the silence
+# clock) could stall the debounce loop forever -- and because every one of
+# the three agents' HTTP calls is awaiting the same shared decision, that
+# would silently freeze the entire panel for the rest of the interview,
+# exactly the "stopped and not going to next" failure this exists to rule
+# out.
+MAX_PENDING_WAIT_SECONDS = 25.0
+
 # Independently of all the above: each of the three panelists runs its own
 # ASR pipeline, and under real network/API latency one can simply be much
 # slower than the others (not visible in a backend-only mock smoke test --
@@ -50,33 +64,60 @@ MIN_THINKING_SECONDS = 5.0
 # genuine straggler can lag many seconds behind.
 STALE_ANSWER_WINDOW_SECONDS = 25.0
 
+# How similar two pieces of text need to be (as a fraction of the shorter
+# one's words found in the longer one) to be treated as "the same
+# utterance, possibly re-transcribed" rather than genuinely different
+# content. A strict startswith() check -- what this used to be -- breaks on
+# the small revisions real ASR makes between calls for what is really one
+# utterance (Deepgram/Agora commonly firms up punctuation or a word choice
+# as more audio comes in, e.g. "...and sorry." becoming "...and sorry? can
+# you go to the next", where the character right after "sorry" no longer
+# matches at all). Word-level overlap tolerates that.
+REVISION_SIMILARITY_THRESHOLD = 0.6
+
+_WORD_RE = re.compile(r"[a-z0-9']+")
+
+
+def _words(text: str) -> list[str]:
+    return _WORD_RE.findall(text.lower())
+
+
+def _similarity(a: str, b: str) -> float:
+    """Fraction of the shorter text's words that also appear in the longer
+    text (each word consumed at most once). 1.0 for identical text modulo
+    punctuation/case; still high for a text that grew a few extra words or
+    had punctuation revised; low for genuinely unrelated sentences."""
+    wa, wb = _words(a), _words(b)
+    if not wa or not wb:
+        return 0.0
+    shorter, longer = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+    remaining: dict[str, int] = {}
+    for w in longer:
+        remaining[w] = remaining.get(w, 0) + 1
+    matched = 0
+    for w in shorter:
+        if remaining.get(w, 0) > 0:
+            remaining[w] -= 1
+            matched += 1
+    return matched / len(shorter)
+
 
 def _merge_fragment(prev: str, new: str) -> str:
-    """Combine two pieces of candidate text that may or may not textually
-    overlap. Agora/Deepgram sometimes deliver a growing transcript of one
-    utterance (new is a superset of prev) and sometimes split what is, to
-    the candidate, one continuous answer into disjoint fragments across a
-    VAD-detected pause (new shares no text with prev at all) -- this
-    handles both by concatenating whenever there's no overlap, instead of
-    silently dropping one side of the answer."""
+    """Combine two pieces of candidate text that may represent the same
+    underlying speech (Agora/Deepgram re-transcribing with a revised word
+    or different punctuation) or genuinely different content (a new
+    fragment after a VAD-detected pause). High word-overlap similarity
+    means "same utterance, keep the fuller capture"; low similarity means
+    "different content, concatenate" rather than silently dropping either
+    side of the answer."""
     prev, new = prev.strip(), new.strip()
     if not prev:
         return new
     if not new:
         return prev
-    pl, nl = prev.lower(), new.lower()
-    if nl.startswith(pl):
-        return new
-    if pl.startswith(nl):
-        return prev
+    if _similarity(prev, new) >= REVISION_SIMILARITY_THRESHOLD:
+        return new if len(new.split()) >= len(prev.split()) else prev
     return f"{prev} {new}"
-
-
-def _texts_overlap(a: str, b: str) -> bool:
-    al, bl = a.strip().lower(), b.strip().lower()
-    if not al or not bl:
-        return False
-    return al.startswith(bl) or bl.startswith(al)
 
 
 def _reconstruct_pending_text(fragments: list[tuple[str, str, float]]) -> str:
@@ -89,14 +130,15 @@ def _reconstruct_pending_text(fragments: list[tuple[str, str, float]]) -> str:
     per_agent: dict[str, str] = {}
     for agent_id, text, _ts in fragments:
         per_agent[agent_id] = _merge_fragment(per_agent.get(agent_id, ""), text)
-    return max(per_agent.values(), key=len, default="")
+    return max(per_agent.values(), key=lambda t: len(t.split()), default="")
 
 
 def _find_stale_match(state: ConversationState, candidate_text: str, now: float) -> Optional[TranscriptLine]:
     """Is this call actually a late straggler for an utterance the panel
     has already responded to, rather than a fresh new answer? True only if
     the most recent candidate transcript line already has a panelist reply
-    after it AND this call's text overlaps that line's."""
+    after it AND this call's text is a near-match for that line's (see
+    REVISION_SIMILARITY_THRESHOLD)."""
     for i in range(len(state.transcript) - 1, -1, -1):
         line = state.transcript[i]
         if line.speaker != "candidate":
@@ -104,7 +146,7 @@ def _find_stale_match(state: ConversationState, candidate_text: str, now: float)
         if now - line.ts > STALE_ANSWER_WINDOW_SECONDS:
             return None
         has_reply_after = any(t.speaker != "candidate" for t in state.transcript[i + 1 :])
-        if has_reply_after and _texts_overlap(line.text, candidate_text):
+        if has_reply_after and _similarity(line.text, candidate_text) >= REVISION_SIMILARITY_THRESHOLD:
             return line
         return None  # most recent candidate line has no reply yet -- it's the current pending answer, not stale
     return None
@@ -157,11 +199,11 @@ def score_agent(state: ConversationState, panelist: PanelistRuntime, signals: Si
 
 def _finalize_turn(state: ConversationState) -> FloorDecision:
     """Called once real silence has been confirmed since the candidate's
-    last speech activity. Reconstructs the full answer from every fragment
-    received since the panel's last turn, logs it as one transcript line,
-    and scores which panelist should respond next. No LLM call in this hot
-    path — keeps the 'who speaks next' decision fast and independent of
-    API latency."""
+    last speech activity (or the hard MAX_PENDING_WAIT_SECONDS ceiling was
+    hit). Reconstructs the full answer from every fragment received since
+    the panel's last turn, logs it as one transcript line, and scores which
+    panelist should respond next. No LLM call in this hot path — keeps the
+    'who speaks next' decision fast and independent of API latency."""
     text = _reconstruct_pending_text(state.pending_fragments)
     state.pending_fragments = []
     state.transcript.append(TranscriptLine(speaker="candidate", text=text))
@@ -210,31 +252,56 @@ def _finalize_turn(state: ConversationState) -> FloorDecision:
     return FloorDecision(winner=winner, scores=scores, reason=reason, continuation=False)
 
 
-async def _debounce_and_finalize(state: ConversationState, fut: asyncio.Future):
+def _fallback_decision(reason: str) -> FloorDecision:
+    """Used only when finalizing a turn raised an unexpected error. Passes
+    the floor to nobody rather than crashing the debounce task -- an agent
+    simply asks its next question when the candidate speaks again, instead
+    of the whole panel going silent for the rest of the interview."""
+    return FloorDecision(winner=None, scores={}, reason=reason, continuation=True)
+
+
+async def _debounce_and_finalize(state: ConversationState, fut: asyncio.Future, started_at: float):
     """Background task, one per pending answer: waits for real silence
     (and the post-question thinking grace) before finalizing. Re-arms
     itself whenever new candidate activity arrives during the wait, so a
-    candidate who keeps pausing and resuming is never cut off mid-answer."""
-    while True:
-        await asyncio.sleep(SILENCE_CONFIRM_SECONDS)
-        async with state.lock:
-            quiet_for = time.time() - state.last_candidate_activity_ts
-            since_question = (
-                time.time() - state.last_panelist_turn_ts if state.last_panelist_turn_ts > 0 else MIN_THINKING_SECONDS
-            )
-        if quiet_for < SILENCE_CONFIRM_SECONDS or since_question < MIN_THINKING_SECONDS:
-            continue
-        break
+    candidate who keeps pausing and resuming is never cut off mid-answer.
+    Bounded by MAX_PENDING_WAIT_SECONDS and wrapped so that ANY unexpected
+    failure still resolves `fut` -- every one of the three agents' HTTP
+    calls is awaiting it, so leaving it unresolved would silently freeze
+    the whole panel for the rest of the session."""
+    try:
+        while True:
+            await asyncio.sleep(SILENCE_CONFIRM_SECONDS)
+            async with state.lock:
+                quiet_for = time.time() - state.last_candidate_activity_ts
+                since_question = (
+                    time.time() - state.last_panelist_turn_ts
+                    if state.last_panelist_turn_ts > 0
+                    else MIN_THINKING_SECONDS
+                )
+                waited_total = time.time() - started_at
+            if waited_total >= MAX_PENDING_WAIT_SECONDS:
+                break
+            if quiet_for < SILENCE_CONFIRM_SECONDS or since_question < MIN_THINKING_SECONDS:
+                continue
+            break
 
-    async with state.lock:
-        decision = _finalize_turn(state)
-        state.turn_count += 1
-        if decision.winner:
-            state.agent_last_spoke_turn[decision.winner] = state.turn_count
-            state.agent_last_spoke_ts[decision.winner] = time.time()
-        state.pending_decision_future = None
+        async with state.lock:
+            decision = _finalize_turn(state)
+            state.turn_count += 1
+            if decision.winner:
+                state.agent_last_spoke_turn[decision.winner] = state.turn_count
+                state.agent_last_spoke_ts[decision.winner] = time.time()
+            state.pending_decision_future = None
+            if not fut.done():
+                fut.set_result(decision)
+    except Exception:
+        logger.exception("floor controller: finalizing a pending turn failed, passing instead of freezing the panel")
+        async with state.lock:
+            state.pending_fragments = []
+            state.pending_decision_future = None
         if not fut.done():
-            fut.set_result(decision)
+            fut.set_result(_fallback_decision("floor decision failed unexpectedly; passing this turn"))
 
 
 async def resolve_decision(state: ConversationState, agent_id: str, candidate_text: str) -> FloorDecision:
@@ -250,7 +317,7 @@ async def resolve_decision(state: ConversationState, agent_id: str, candidate_te
         stale = _find_stale_match(state, candidate_text, now)
         if stale is not None:
             merged = _merge_fragment(stale.text, candidate_text)
-            if len(merged) > len(stale.text):
+            if len(merged.split()) > len(stale.text.split()):
                 stale.text = merged
                 stale.ts = now
             return FloorDecision(
@@ -268,6 +335,6 @@ async def resolve_decision(state: ConversationState, agent_id: str, candidate_te
         else:
             fut = asyncio.get_event_loop().create_future()
             state.pending_decision_future = fut
-            asyncio.create_task(_debounce_and_finalize(state, fut))
+            asyncio.create_task(_debounce_and_finalize(state, fut, now))
 
     return await fut

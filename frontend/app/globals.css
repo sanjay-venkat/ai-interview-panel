@@ -255,8 +255,29 @@ button {
 }
 
 .agent-card.speaking {
-  box-shadow: var(--shadow-glow);
   transform: translateY(-2px);
+  animation: agent-glow 1.1s ease-in-out infinite;
+}
+
+.agent-row .agent-card:nth-child(1).speaking {
+  --glow-color: var(--agent-1);
+}
+.agent-row .agent-card:nth-child(2).speaking {
+  --glow-color: var(--agent-2);
+}
+.agent-row .agent-card:nth-child(3).speaking {
+  --glow-color: var(--agent-3);
+}
+
+@keyframes agent-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 1px var(--glow-color, var(--accent)), 0 0 14px 2px color-mix(in srgb, var(--glow-color, var(--accent)) 55%, transparent),
+      0 8px 24px -6px rgba(35, 38, 58, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 1px var(--glow-color, var(--accent)), 0 0 26px 8px color-mix(in srgb, var(--glow-color, var(--accent)) 70%, transparent),
+      0 8px 24px -6px rgba(35, 38, 58, 0.25);
+  }
 }
 
 .agent-card .name {
@@ -344,32 +365,61 @@ button {
   color: var(--accent);
 }
 
-.score-bar-row {
+.topic-chip-row {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topic-chip {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  font-size: 13px;
-}
-
-.score-bar-row .label {
-  width: 140px;
-  color: var(--muted);
-  flex-shrink: 0;
-  text-transform: capitalize;
-}
-
-.score-bar-track {
-  flex: 1;
-  height: 8px;
-  background: var(--bg-2);
+  gap: 6px;
+  padding: 6px 12px;
   border-radius: 999px;
-  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+  border: 1.5px solid var(--panel-border);
+  background: var(--bg-2);
+  color: var(--text);
 }
 
-.score-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--agent-2));
+.topic-chip-status {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.topic-chip.covered {
+  border-color: rgba(23, 178, 106, 0.35);
+  background: rgba(23, 178, 106, 0.08);
+}
+.topic-chip.covered .topic-chip-status {
+  background: var(--good);
+  color: white;
+}
+
+.topic-chip.in-progress {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+}
+.topic-chip.in-progress .topic-chip-status {
+  background: var(--warn);
+  color: #1a1300;
+}
+
+.topic-chip.mentioned {
+  border-color: var(--panel-border);
+  background: var(--bg-2);
+  color: var(--muted);
+}
+.topic-chip.mentioned .topic-chip-status {
+  background: #dfe3f3;
+  color: var(--muted);
 }
 
 .bottom-row {
@@ -382,17 +432,6 @@ button {
   display: flex;
   gap: 10px;
   margin-top: 20px;
-}
-
-.latency-grid {
-  display: flex;
-  gap: 20px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.latency-grid b {
-  color: var(--text);
 }
 
 .scorecard-grid {

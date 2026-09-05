@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Interview Panel",
+  title: "Voice Verse Bot",
   description: "Adaptive multi-agent AI interview panel over Agora RTC",
 };
 
