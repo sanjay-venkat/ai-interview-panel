@@ -36,6 +36,14 @@ class PanelistTemplate:
     archetype: str  # picks which prompt template in prompts.py to format
     keywords: list[str]
     focus_description: str = ""  # only used by domain_lead archetype
+    # Base speaking-priority weight for this panelist within this role's panel.
+    # Multiplies the floor controller's relevance/weakness score (see
+    # app/orchestration/floor_controller.py::score_agent) so that, e.g., a
+    # Technical Lead is favored more heavily for an engineering role while a
+    # Culture & Values Partner is favored more heavily for an HR role — the
+    # weighting reflects which interviewer's judgment matters most for the
+    # role being interviewed for, not just raw keyword relevance.
+    priority: float = 1.0
 
 
 @dataclass
@@ -46,16 +54,16 @@ class RoleConfig:
     panelists: list[PanelistTemplate] = field(default_factory=list)
 
 
-def _domain_lead(title: str, keywords: list[str], focus: str) -> PanelistTemplate:
-    return PanelistTemplate(title=title, archetype=DOMAIN_LEAD_ARCHETYPE, keywords=keywords, focus_description=focus)
+def _domain_lead(title: str, keywords: list[str], focus: str, priority: float = 1.2) -> PanelistTemplate:
+    return PanelistTemplate(title=title, archetype=DOMAIN_LEAD_ARCHETYPE, keywords=keywords, focus_description=focus, priority=priority)
 
 
-def _hiring_manager() -> PanelistTemplate:
-    return PanelistTemplate(title="Hiring Manager", archetype=HIRING_MANAGER_ARCHETYPE, keywords=IMPACT_KEYWORDS)
+def _hiring_manager(priority: float = 1.0) -> PanelistTemplate:
+    return PanelistTemplate(title="Hiring Manager", archetype=HIRING_MANAGER_ARCHETYPE, keywords=IMPACT_KEYWORDS, priority=priority)
 
 
-def _culture_fit() -> PanelistTemplate:
-    return PanelistTemplate(title="Culture & Values Partner", archetype=CULTURE_FIT_ARCHETYPE, keywords=BEHAVIORAL_KEYWORDS)
+def _culture_fit(priority: float = 0.9) -> PanelistTemplate:
+    return PanelistTemplate(title="Culture & Values Partner", archetype=CULTURE_FIT_ARCHETYPE, keywords=BEHAVIORAL_KEYWORDS, priority=priority)
 
 
 ROLE_CATALOG: dict[str, RoleConfig] = {
@@ -124,9 +132,9 @@ ROLE_CATALOG: dict[str, RoleConfig] = {
         label="Research Scientist / ML Researcher",
         role_title="Research Scientist",
         panelists=[
-            _domain_lead("Research Lead", RESEARCH_METHODOLOGY_KEYWORDS, "research motivation, methodology, novelty, and framing relative to prior work"),
-            _domain_lead("Technical Reviewer", RESEARCH_RIGOR_KEYWORDS, "experimental rigor: baselines, ablations, reproducibility, and limitations"),
-            _hiring_manager(),
+            _domain_lead("Research Lead", RESEARCH_METHODOLOGY_KEYWORDS, "research motivation, methodology, novelty, and framing relative to prior work", priority=1.25),
+            _domain_lead("Technical Reviewer", RESEARCH_RIGOR_KEYWORDS, "experimental rigor: baselines, ablations, reproducibility, and limitations", priority=1.15),
+            _hiring_manager(priority=0.9),
         ],
     ),
     "product_manager": RoleConfig(
@@ -135,7 +143,7 @@ ROLE_CATALOG: dict[str, RoleConfig] = {
         role_title="Product Manager",
         panelists=[
             _domain_lead("Product Lead", PRODUCT_KEYWORDS, "prioritization, roadmap trade-offs, metrics, and stakeholder alignment"),
-            _hiring_manager(),
+            _hiring_manager(priority=1.15),
             _culture_fit(),
         ],
     ),
@@ -144,9 +152,9 @@ ROLE_CATALOG: dict[str, RoleConfig] = {
         label="HR / People Ops",
         role_title="HR Business Partner",
         panelists=[
-            _domain_lead("HR Domain Lead", HR_KEYWORDS, "HR processes, compliance, employee lifecycle, and policy judgment"),
-            _hiring_manager(),
-            _culture_fit(),
+            _domain_lead("HR Domain Lead", HR_KEYWORDS, "HR processes, compliance, employee lifecycle, and policy judgment", priority=1.1),
+            _hiring_manager(priority=0.95),
+            _culture_fit(priority=1.15),
         ],
     ),
 }

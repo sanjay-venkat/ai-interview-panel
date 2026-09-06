@@ -1,6 +1,8 @@
 from app.llm.groq_client import complete_json
 from app.memory.conversation_state import ConversationState
 
+SCORECARD_METRICS = ["domain_depth", "problem_solving", "communication", "ownership", "collaboration", "overall"]
+
 SCORECARD_SCHEMA = """Respond with ONLY a JSON object matching this schema:
 {
   "domain_depth": number (0-10),
@@ -10,9 +12,19 @@ SCORECARD_SCHEMA = """Respond with ONLY a JSON object matching this schema:
   "collaboration": number (0-10),
   "overall": number (0-10),
   "recommendation": "STRONG CONSIDERATION" | "CONSIDER" | "NOT RECOMMENDED",
-  "panelist_comments": { "<panelist title exactly as given>": "1-2 sentence first-person comment from that panelist" }
+  "panelist_comments": { "<panelist title exactly as given>": "1-2 sentence first-person comment from that panelist" },
+  "metric_feedback": {
+    "domain_depth": { "why": "1-2 sentences on why this score, citing specific transcript evidence", "improve": "1 concrete, actionable sentence on what would raise this score" },
+    "problem_solving": { "why": "...", "improve": "..." },
+    "communication": { "why": "...", "improve": "..." },
+    "ownership": { "why": "...", "improve": "..." },
+    "collaboration": { "why": "...", "improve": "..." },
+    "overall": { "why": "...", "improve": "..." }
+  }
 }
-"panelist_comments" must have exactly one entry per panelist listed below, keyed by their exact title."""
+"panelist_comments" must have exactly one entry per panelist listed below, keyed by their exact title.
+"metric_feedback" must have exactly one entry per metric above (domain_depth, problem_solving, communication,
+ownership, collaboration, overall), each with both "why" and "improve" filled in — never leave either blank."""
 
 
 def _build_system_prompt(state: ConversationState) -> str:

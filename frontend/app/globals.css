@@ -23,6 +23,13 @@
   --agent-3-glow: rgba(251, 113, 133, 0.65);
   --agent-3-glow-soft: rgba(251, 113, 133, 0.28);
 
+  /* One shared "speaking" glow for every panelist, regardless of who they
+     are — identity is conveyed by the avatar color (see archetype-* rules
+     below), "currently speaking" is conveyed by this single consistent
+     color, matching the status dot/text so both indicators always agree. */
+  --speaking-glow: rgba(23, 178, 106, 0.65);
+  --speaking-glow-soft: rgba(23, 178, 106, 0.28);
+
   --shadow-sm: 0 1px 2px rgba(35, 38, 58, 0.06), 0 1px 3px rgba(35, 38, 58, 0.05);
   --shadow-md: 0 4px 14px rgba(85, 74, 219, 0.08), 0 2px 6px rgba(35, 38, 58, 0.05);
   --shadow-glow: 0 0 0 1px var(--accent), 0 8px 24px -6px rgba(109, 94, 248, 0.45);
@@ -275,30 +282,21 @@ button {
   transition: box-shadow 0.2s;
 }
 
-.agent-row .agent-card:nth-child(1) .agent-card-avatar {
+/* Avatar color is keyed to the panelist's ARCHETYPE (a stable identity —
+   "the Technical Lead persona"), not to which of the 3 card slots they
+   happen to render in this session. See components/AgentCard.tsx. */
+.agent-card.archetype-domain_lead .agent-card-avatar,
+.agent-card.archetype-fallback .agent-card-avatar {
   background: var(--agent-1-bg);
   color: var(--agent-1);
 }
-.agent-row .agent-card:nth-child(2) .agent-card-avatar {
+.agent-card.archetype-hiring_manager .agent-card-avatar {
   background: var(--agent-2-bg);
   color: var(--agent-2);
 }
-.agent-row .agent-card:nth-child(3) .agent-card-avatar {
+.agent-card.archetype-culture_fit .agent-card-avatar {
   background: var(--agent-3-bg);
   color: var(--agent-3);
-}
-
-.agent-row .agent-card:nth-child(1).speaking {
-  --glow: var(--agent-1-glow);
-  --glow-soft: var(--agent-1-glow-soft);
-}
-.agent-row .agent-card:nth-child(2).speaking {
-  --glow: var(--agent-2-glow);
-  --glow-soft: var(--agent-2-glow-soft);
-}
-.agent-row .agent-card:nth-child(3).speaking {
-  --glow: var(--agent-3-glow);
-  --glow-soft: var(--agent-3-glow-soft);
 }
 
 .agent-card.speaking {
@@ -311,21 +309,24 @@ button {
   animation: agent-avatar-glow 1.1s ease-in-out infinite;
 }
 
+/* Unified across every panelist regardless of archetype — "currently
+   speaking" should look the same for all three, so identity (avatar color)
+   and activity (this glow) never get visually conflated. */
 @keyframes agent-glow {
   0%, 100% {
-    box-shadow: 0 0 0 2px var(--glow, var(--accent)), 0 0 18px 4px var(--glow-soft, rgba(109, 94, 248, 0.3)), var(--shadow-md);
+    box-shadow: 0 0 0 2px var(--speaking-glow), 0 0 18px 4px var(--speaking-glow-soft), var(--shadow-md);
   }
   50% {
-    box-shadow: 0 0 0 3px var(--glow, var(--accent)), 0 0 36px 10px var(--glow, rgba(109, 94, 248, 0.5)), var(--shadow-md);
+    box-shadow: 0 0 0 3px var(--speaking-glow), 0 0 36px 10px var(--speaking-glow), var(--shadow-md);
   }
 }
 
 @keyframes agent-avatar-glow {
   0%, 100% {
-    box-shadow: 0 0 0 4px var(--glow-soft, rgba(109, 94, 248, 0.3));
+    box-shadow: 0 0 0 4px var(--speaking-glow-soft);
   }
   50% {
-    box-shadow: 0 0 0 8px var(--glow-soft, rgba(109, 94, 248, 0.15));
+    box-shadow: 0 0 0 8px var(--speaking-glow-soft);
   }
 }
 
@@ -640,4 +641,146 @@ button {
   border-top: 1px solid var(--panel-border);
   margin-top: 12px;
   padding-top: 10px;
+}
+
+/* ---------- Final scorecard report ---------- */
+.scorecard-report {
+  max-width: 720px;
+  margin: 40px auto;
+}
+
+.score-btn {
+  border: 1.5px solid var(--panel-border);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  font-family: inherit;
+}
+
+.score-btn:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.click-cta {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-top: 6px;
+  letter-spacing: 0.01em;
+}
+
+.panelist-comments {
+  margin-top: 4px;
+}
+
+.radar-section {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: var(--bg-2);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.radar-thumb-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  line-height: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.radar-thumb-btn:hover {
+  transform: scale(1.05);
+}
+
+.radar-caption {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.download-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+.download-btn {
+  width: auto;
+  padding: 13px 28px;
+}
+
+/* Modal — used both for "why this score" and the expanded radar chart. Kept
+   in normal-flow-safe fixed overlay since this is a real app page (not the
+   sandboxed widget context), centered regardless of scroll position. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 17, 30, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal-card {
+  position: relative;
+  background: var(--panel);
+  border-radius: 18px;
+  padding: 28px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: var(--shadow-md);
+}
+
+.modal-card-wide {
+  max-width: 520px;
+  text-align: center;
+}
+
+.modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-score {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.modal-card h3 {
+  margin: 4px 0 12px;
+}
+
+.modal-card p {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.radar-hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 12px;
 }

@@ -81,6 +81,32 @@ async def complete_json(system_prompt: str, user_message: str, max_tokens: int =
                 p.title: "Solid, specific answers overall; a bit more depth on trade-offs would help."
                 for p in panel
             },
+            "metric_feedback": {
+                "domain_depth": {
+                    "why": "Answers showed working knowledge of the core concepts but leaned on generalities rather than specifics from real projects.",
+                    "improve": "Walk through one project in concrete technical detail — the actual data, the actual failure mode, the actual fix.",
+                },
+                "problem_solving": {
+                    "why": "Trade-offs were acknowledged but rarely quantified, so it's hard to tell how the decision was actually reached.",
+                    "improve": "Name the alternatives you rejected and the specific reason each one lost out.",
+                },
+                "communication": {
+                    "why": "Explanations were clear and well-paced, with good use of concrete examples.",
+                    "improve": "Keep leading with the conclusion first, then the supporting detail, especially on longer answers.",
+                },
+                "ownership": {
+                    "why": "The candidate described their role in past work but was vague about which decisions were actually theirs versus the team's.",
+                    "improve": "Be explicit about what you personally decided, drove, or were accountable for versus what the team did.",
+                },
+                "collaboration": {
+                    "why": "Mentioned working with others but gave little detail on how disagreements or blockers were actually resolved.",
+                    "improve": "Describe one specific disagreement and how it was resolved, not just that the team worked together.",
+                },
+                "overall": {
+                    "why": "A consistent, competent performance across all three interviewers with no major red flags.",
+                    "improve": "Add more concrete numbers and named trade-offs throughout — depth is the single biggest lever left.",
+                },
+            },
         }
 
     payload = {

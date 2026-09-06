@@ -21,6 +21,11 @@ export interface StartSessionResponse {
   max_duration_seconds: number;
 }
 
+export interface MetricFeedback {
+  why: string;
+  improve: string;
+}
+
 export interface Scorecard {
   domain_depth: number;
   problem_solving: number;
@@ -30,6 +35,7 @@ export interface Scorecard {
   overall: number;
   recommendation: string;
   panelist_comments: Record<string, string>;
+  metric_feedback?: Record<string, MetricFeedback>;
   integrity?: { tilt_events: number; away_events: number };
 }
 

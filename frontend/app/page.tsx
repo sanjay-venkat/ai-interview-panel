@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import AgentCard from "@/components/AgentCard";
 import CameraMonitor from "@/components/CameraMonitor";
+import ScorecardReport from "@/components/ScorecardReport";
 import {
   endSession,
   getRoles,
@@ -19,15 +20,6 @@ import { ProctorEventType } from "@/lib/faceProctor";
 import { Snapshot } from "@/lib/types";
 
 type Stage = "setup" | "connecting" | "active" | "ending" | "complete";
-
-const SCORECARD_METRICS = [
-  "domain_depth",
-  "problem_solving",
-  "communication",
-  "ownership",
-  "collaboration",
-  "overall",
-] as const;
 
 // Agora reports real audio energy per uid on a 0-100 scale; background
 // noise/silence usually sits under this. Below the threshold, nobody's
@@ -259,33 +251,11 @@ export default function Page() {
   if (stage === "complete" && scorecard) {
     return (
       <div className="container">
-        <div className="panel" style={{ maxWidth: 640, margin: "40px auto" }}>
-          <h2>Final Scorecard</h2>
-          <div className="recommendation">{scorecard.recommendation}</div>
-          <div className="scorecard-grid">
-            {SCORECARD_METRICS.map((k) => (
-              <div className="scorecard-stat" key={k}>
-                <div className="val">{scorecard[k]?.toFixed?.(1) ?? scorecard[k]}</div>
-                <div className="lbl">{k.replace("_", " ")}</div>
-              </div>
-            ))}
-          </div>
-          {Object.entries(scorecard.panelist_comments ?? {}).map(([title, comment]) => (
-            <p key={title}>
-              <b>{title}:</b> {comment}
-            </p>
-          ))}
-          {scorecard.integrity && (
-            <div className="integrity-summary">
-              <span className="col-label" style={{ display: "inline", textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 12, color: "var(--muted)" }}>
-                Proctoring
-              </span>
-              <p style={{ margin: "6px 0 0", fontSize: 13.5 }}>
-                {scorecard.integrity.tilt_events} head-tilt event(s) &middot; {scorecard.integrity.away_events} away-from-camera event(s) detected during the session.
-              </p>
-            </div>
-          )}
-        </div>
+        <ScorecardReport
+          scorecard={scorecard}
+          candidateName={candidateName || "Candidate"}
+          roleTitle={snapshot?.role_title ?? session?.role_title ?? ""}
+        />
       </div>
     );
   }
@@ -348,7 +318,7 @@ export default function Page() {
 
       <div className="agent-row">
         {panel.map((p) => (
-          <AgentCard key={p.id} name={p.title} speaking={speaker === p.id} />
+          <AgentCard key={p.id} designation={p.title} archetype={p.archetype} speaking={speaker === p.id} />
         ))}
       </div>
 

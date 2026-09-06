@@ -47,6 +47,9 @@ class PanelistRuntime:
     keywords: list[str]
     system_prompt_base: str  # static per-role part; per-turn state appended later
     greeting: Optional[str] = None  # only the first panelist gets one
+    archetype: str = ""  # "domain_lead" | "hiring_manager" | "culture_fit" -- stable identity for
+    # avatar/color assignment on the frontend, independent of positional slot (see PanelistRuntime docstring)
+    priority: float = 1.0  # base speaking-priority weight from this role's PanelistTemplate (see roles.py)
 
 
 @dataclass
@@ -114,7 +117,7 @@ class ConversationState:
             "candidate_name": self.candidate_name,
             "role_title": self.role,
             "started_at": self.started_at,
-            "panel": [{"id": p.id, "title": p.title} for p in self.panel],
+            "panel": [{"id": p.id, "title": p.title, "archetype": p.archetype} for p in self.panel],
             "phase": self.phase.value,
             "current_speaker": self.current_speaker,
             "turn_count": self.turn_count,

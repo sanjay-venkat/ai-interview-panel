@@ -57,6 +57,8 @@ def _build_panel(role_config) -> list[PanelistRuntime]:
                 keywords=template.keywords,
                 system_prompt_base=build_static_prompt(template, role_config.role_title),
                 greeting=build_greeting(template.title, role_config.role_title) if i == 0 else None,
+                archetype=template.archetype,
+                priority=template.priority,
             )
         )
     return panel
@@ -92,7 +94,7 @@ async def start_session(candidate_name: str, role_key: str, resume_text: str) ->
         "candidate_uid": CANDIDATE_UID,
         "candidate_token": build_rtc_token(channel, CANDIDATE_UID),
         "role_title": role_config.role_title,
-        "panel": [{"id": p.id, "title": p.title, "uid": PANEL_UIDS[i]} for i, p in enumerate(panel)],
+        "panel": [{"id": p.id, "title": p.title, "uid": PANEL_UIDS[i], "archetype": p.archetype} for i, p in enumerate(panel)],
         "mock_mode": settings.effective_mock_mode,
         "max_duration_seconds": MAX_INTERVIEW_SECONDS,
     }

@@ -187,11 +187,21 @@ def score_agent(state: ConversationState, panelist: PanelistRuntime, signals: Si
     weakness = _weakness_score(panelist, signals)
     urgency = 0.5 * relevance + 0.5 * weakness
     penalty = _recent_penalty(state, panelist.id)
-    final = relevance + weakness + urgency - penalty
+    # panelist.priority (set per-role in app/agents/roles.py, e.g. a Technical
+    # Lead is weighted higher for an engineering role, a Culture & Values
+    # Partner higher for an HR role) scales the content-driven signal so the
+    # same relevance/weakness reading tips the decision toward whichever
+    # interviewer matters most for the role being interviewed for. It only
+    # scales the signal, not the recency penalty, so the fairness guarantee
+    # (an agent that just spoke is still discouraged from immediately
+    # retaking the floor) isn't weakened by a high-priority role.
+    weighted_signal = (relevance + weakness + urgency) * panelist.priority
+    final = weighted_signal - penalty
     return {
         "relevance": round(relevance, 3),
         "weakness": round(weakness, 3),
         "urgency": round(urgency, 3),
+        "priority": panelist.priority,
         "recent_penalty": round(penalty, 3),
         "final": round(final, 3),
     }

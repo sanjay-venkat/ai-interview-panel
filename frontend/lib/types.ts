@@ -13,6 +13,7 @@ export interface TranscriptLine {
 export interface PanelMember {
   id: string;
   title: string;
+  archetype?: "domain_lead" | "hiring_manager" | "culture_fit" | string;
 }
 
 export interface Snapshot {
